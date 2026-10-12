@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Kempner">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <title>Kempner Mobile</title>
 <style>
 :root{
@@ -112,6 +112,19 @@ textarea.f{min-height:120px;resize:vertical}
 .amt.box{color:#fff;background:var(--green);padding:2px 7px;border-radius:6px}
 .tot{font-size:13px;font-weight:600;color:var(--green);margin-top:4px}
 .ratebox{font-weight:700;color:var(--green)}
+.grid4.g7{grid-template-columns:repeat(4,1fr)}
+.lineed{border:1px solid var(--bd);border-radius:10px;padding:8px;margin:6px 0;background:var(--card)}
+.lineed .lr{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:6px;align-items:end}
+.lineed .x{background:none;border:0;color:var(--red);font-size:22px;padding:0 6px}
+.lineed .hint{font-size:12px;color:var(--muted);margin-top:4px}
+.totals{background:var(--chip);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:14px}
+.totals div{display:flex;justify-content:space-between}
+.totals .gt{font-weight:700;font-size:16px;border-top:1px solid var(--bd);margin-top:4px;padding-top:4px}
+.sigwrap{position:relative;background:#fff;border:2px dashed var(--bd);border-radius:12px;margin-top:6px}
+#sig{display:block;width:100%;height:190px;touch-action:none;border-radius:12px}
+.sigwrap .lbl{position:absolute;left:12px;bottom:10px;color:#aaa;font-size:13px;pointer-events:none}
+.sigwrap .line{position:absolute;left:12px;right:12px;bottom:34px;border-top:1px solid #ccc;pointer-events:none}
+.copy{background:none;border:0;color:var(--muted);font-size:13px;padding:0 4px}
 </style>
 </head>
 <body>
@@ -250,6 +263,26 @@ function buildIndex() {
 }
 function rows(table, key) { return (IDX.by[table] && IDX.by[table].get(String(key))) || []; }
 function pend(key, type) { return (IDX.pend.get(String(key)) || []).filter(e => !type || e.type === type); }
+function lineCalc(lines, vatRate, ship) {
+  const rate = +vatRate || 0, sh = +ship || 0; let subtotal = 0;
+  for (const l of lines) { const q = +(l.quantity || 1) || 1; const p = +(l.agreed_price || l.unit_price || l.quoted_price || 0) || 0; subtotal += q * p; }
+  const vat = subtotal * rate + sh * rate;
+  return {subtotal, shipping_cost: sh, vat_amount: vat, grand_total: subtotal + sh + vat};
+}
+function productList() { return Object.entries((SNAP && SNAP.products) || {}).map(([id, p]) => ({id, name: p.name, section: p.section || ""})).sort((a, b) => a.name.localeCompare(b.name)); }
+function productByName(n) { n = String(n || "").trim().toLowerCase(); return productList().find(p => p.name.toLowerCase() === n) || null; }
+function lastPrice(key, name) {
+  const v = view(key) || {}; const n = String(name || "").toLowerCase();
+  for (const g of v.order_groups || []) for (const l of g.lines || []) if (String(l.description).toLowerCase() === n && l.unit_price) return l.unit_price;
+  for (const g of v.quote_groups || []) for (const l of g.lines || []) if (String(l.description).toLowerCase() === n && (l.agreed_price || l.quoted_price)) return l.agreed_price || l.quoted_price;
+  return "";
+}
+function defaultVatPct() { const r = SNAP && SNAP.vat_rate != null ? +SNAP.vat_rate : 0.2; return String(Math.round(r * 10000) / 100); }
+function pendingGroups(key, type) {
+  return pend(key, type).map(ev => { const d = ev.data, ls = (d.lines || []).map(l => Object.assign({}, l, {description: l.description || l.product_name}));
+    const g = Object.assign({}, d, lineCalc(ls, d.vat_rate, d.shipping_cost), {lines: ls, _pending: ev});
+    g.headline = ls.length === 1 ? `${ls[0].description} · ${num(ls[0].quantity)}` : `${ls.length} line items`; return g; });
+}
 function phoneActionId(ev) { return "ph" + ev.id.replace(/-/g, "").slice(0, 8); }
 function myUserId() {
   const name = META.user || (SNAP && SNAP.current_user) || "";
@@ -431,7 +464,9 @@ function pendBadge(x) { return x && x._pending ? '<span class="badge">not synced
 function section(title, count, inner, open) {
   return `<details ${open?"open":""}><summary>${title}<span class="n">${count}</span></summary>${inner || '<div class="empty">None on file.</div>'}</details>`;
 }
-function telLink(n) { return `<a href="tel:${esc(digits(n))}">${esc(n)}</a>`; }
+function telLink(n) { const d = digits(n); return d.replace(/\D/g, "").length >= 5 ? `<a href="tel:${esc(d)}">${esc(n)}</a><button class="copy" data-copy="${esc(n)}">⧉</button>` : `${esc(n)} <span class="small">(not a dialable number)</span>`; }
+document.addEventListener("click", e => { const b = e.target.closest("[data-copy]"); if (!b) return; e.preventDefault();
+  (navigator.clipboard ? navigator.clipboard.writeText(b.dataset.copy) : Promise.reject()).then(() => toast("Copied " + b.dataset.copy), () => toast(b.dataset.copy)); });
 route(/^#\/c\/(.+)$/, key => {
   const c = IDX.co.get(key);
   if (!c) { toast("Company not found"); return go("#/"); }
@@ -454,14 +489,17 @@ route(/^#\/c\/(.+)$/, key => {
     ${tags.length?`<div>${tags.map(t=>`<span class="chip">🏷 ${esc(t.tag)}</span>`).join("")}</div>`:""}
     ${v.rate?`<div style="margin-top:6px"><span class="ratebox">${esc(v.rate.text)}</span> <span class="small">${esc(v.rate.sub||"")}</span></div>`:""}
     ${c.vibe?`<div class="small" style="margin-top:4px">💬 ${esc(c.vibe)}</div>`:""}
-    <div class="contactbar">${mainNum?`<a class="btn sm" href="tel:${esc(digits(mainNum.number))}">📞 Call</a><a class="btn sm sec" href="sms:${esc(digits(mainNum.number))}">💬 Text</a>`:""}
+    <div class="contactbar">${mainNum && digits(mainNum.number).replace(/\D/g,"").length >= 5?`<a class="btn sm" href="tel:${esc(digits(mainNum.number))}">📞 Call</a><a class="btn sm sec" href="sms:${esc(digits(mainNum.number))}">💬 Text</a>`:mainNum?`<span class="small">No dialable number on file (“${esc(mainNum.number)}”)</span>`:""}
     ${mainEmail?`<a class="btn sm sec" href="mailto:${esc(mainEmail)}">✉️ Email</a>`:""}
     ${addrs[0]?`<a class="btn sm sec" href="https://maps.apple.com/?q=${encodeURIComponent((addrs[0].lines||"").replace(/\n/g,", "))}">🗺 Map</a>`:""}</div></div>`);
   h.push(`<div class="grid4">
     <a class="btn" href="#/add/note/${encodeURIComponent(key)}"><span>📝</span>Note</a>
     <a class="btn" href="#/add/action/${encodeURIComponent(key)}"><span>✅</span>Action</a>
     <a class="btn" href="#/add/meeting/${encodeURIComponent(key)}"><span>🤝</span>Visit</a>
-    <a class="btn" href="#/add/contact/${encodeURIComponent(key)}"><span>👤</span>Contact</a></div>`);
+    <a class="btn" href="#/add/contact/${encodeURIComponent(key)}"><span>👤</span>Contact</a>
+    <a class="btn" style="background:#f59e0b" href="#/add/quote/${encodeURIComponent(key)}"><span>💷</span>Quote</a>
+    <a class="btn" style="background:#0d9488" href="#/add/order/${encodeURIComponent(key)}"><span>🛒</span>Order</a>
+    <a class="btn" style="background:#7c3aed" href="#/sign/${encodeURIComponent(key)}"><span>✍️</span>Sign-off</a></div>`);
   if (v.glance) {
     const g = v.glance.map(x => Object.assign({}, x));
     // keep NEXT ACTION honest about things ticked/added on the phone
@@ -486,6 +524,7 @@ route(/^#\/c\/(.+)$/, key => {
   const notes = rows("notes", key).slice();
   for (const ev of pend(key)) {
     if (ev.type === "note") notes.push({date: ev.created_at.slice(0,10), time: ev.created_at.slice(11,16), content: ev.data.content, customer_name: ev.data.customer, status_prefix: ev.data.flag, _pending: ev});
+    if (ev.type === "signoff") notes.push({date: ev.created_at.slice(0,10), time: ev.created_at.slice(11,16), content: `✍️ Signed by ${ev.data.person || "customer"}\n\n${ev.data.statement}`, customer_name: ev.data.person, reference: "Signed sheet", status_prefix: "3GREEN", _pending: ev, _pdf: ev.id});
     if (ev.type === "action_done" && ev.data.outcome) notes.push({date: ev.created_at.slice(0,10), time: ev.created_at.slice(11,16), content: `Action: ${ev.data.action_note}\nOutcome: ${ev.data.outcome}`, status_prefix: "3GREEN", _pending: ev});
   }
   notes.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
@@ -534,22 +573,22 @@ route(/^#\/c\/(.+)$/, key => {
   const totLine = g => `Goods ${gbp(g.subtotal)}${g.shipping_cost?` + Shipping ${gbp(g.shipping_cost)}`:""} = ${gbp((g.subtotal||0) + (g.shipping_cost||0))} +VAT ${gbp(g.vat_amount)} → ${gbp(g.grand_total)}`;
   const icon = ln => ln.section === "Film" ? "🎞" : ln.section === "Machines" ? "⚙" : "•";
   const STAT_COL = {won:"#16a34a",accepted:"#16a34a",pending:"#f59e0b",negotiating:"#f59e0b","counter-offered":"#f59e0b","on hold":"#6b7280",lost:"#e8192c",rejected:"#e8192c",expired:"#6b7280"};
-  if (v.quote_groups || v.order_groups) {
-    const qg = v.quote_groups || [], og = v.order_groups || [], cm = v.commercial || {};
+  if (v.quote_groups || v.order_groups || pend(key, "quote_new").length || pend(key, "order_new").length) {
+    const qg = pendingGroups(key, "quote_new").concat(v.quote_groups || []), og = pendingGroups(key, "order_new").concat(v.order_groups || []), cm = v.commercial || {};
     const tiles = `<div class="tiles"><div class="tile" style="background:#2563eb"><b>${esc(cm.total_quotes ?? qg.length)}</b><span>Total quotes</span></div>
       <div class="tile" style="background:#16a34a"><b>${esc(cm.win_rate ?? "—")}</b><span>Win rate</span></div>
       <div class="tile" style="background:#f59e0b"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div>
       <div class="tile" style="background:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
       <div class="tile" style="background:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>
       ${v.reorder?`<div class="tile" style="background:#6b7280"><b style="font-size:12px">${esc(v.reorder.text.replace(/^\S+\s/,""))}</b><span>Film reorder</span></div>`:""}</div>`;
-    const qHtml = qg.map(g => `<div class="item"><div class="qhead"><span class="small">${niceDate(g.date)}</span><span class="hl">${esc(g.headline)}</span>
+    const qHtml = qg.map(g => `<div class="item ${g._pending?"pend":""}"><div class="qhead"><span class="small">${niceDate(g.date)}</span><span class="hl">${esc(g.headline)}${pendBadge(g)}</span>
         <span class="stat" style="background:${STAT_COL[String(g.status||"").toLowerCase()]||"#6b7280"}">${esc(g.status)}</span><span class="amt">${gbp(g.grand_total)}</span></div>
         ${g.quote_number?`<div class="small"><b>${esc(g.quote_number)}</b></div>`:""}
         ${(g.lines||[]).map(ln => { const pr = ln.agreed_price || ln.quoted_price || 0;
           return `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(pr)}${ln.agreed_price && ln.quoted_price && ln.agreed_price != ln.quoted_price ? ` (was ${gbp(ln.quoted_price)})` : ""}</div>`; }).join("")}
         <div class="tot">${totLine(g)}</div>
         ${g.follow_up_date?`<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>`:""}${g.competitor?`<div class="small">vs ${esc(g.competitor)}</div>`:""}${g.notes?`<div class="small">${esc(g.notes)}</div>`:""}</div>`).join("");
-    const oHtml = og.map(g => `<div class="item"><div class="qhead"><span class="small">${niceDate(g.order_date)}</span><span class="hl">${esc(g.headline)}</span><span class="amt box">${gbp(g.grand_total)}</span></div>
+    const oHtml = og.map(g => `<div class="item ${g._pending?"pend":""}"><div class="qhead"><span class="small">${niceDate(g.order_date)}</span><span class="hl">${esc(g.headline)}${pendBadge(g)}</span><span class="amt box">${gbp(g.grand_total)}</span></div>
         ${(g.lines||[]).map(ln => `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(ln.unit_price)}</div>`).join("")}
         <div class="tot">${totLine(g)}</div>${g.notes?`<div class="small">${esc(g.notes)}</div>`:""}</div>`).join("");
     h.push(section("💷 Commercial", `${qg.length} quotes · ${og.length} orders`, tiles
@@ -585,12 +624,13 @@ route(/^#\/c\/(.+)$/, key => {
 
   $("#view").innerHTML = h.join("");
   const nb = $("#notesBox");
-  nb.addEventListener("click", e => { if (e.target.id === "moreNotes") nb.innerHTML = notesHtml(notes, 100000); });
+  nb.addEventListener("click", e => { if (e.target.id === "moreNotes") nb.innerHTML = notesHtml(notes, 100000);
+    const pb = e.target.closest("[data-pdf]"); if (pb) { const ev = PENDING.find(x => x.id === pb.dataset.pdf); if (ev) sharePdf(ev.data.pdf_b64, ev.data.filename); } });
 });
 function notesHtml(notes, n) {
   return notes.slice(0, n).map(x => `<div class="item flag-${esc(x.status_prefix||"")} ${x._pending?"pend":""}">
     <div class="meta">${niceDate(x.date)} ${esc(x.time||"")}${x.customer_name?" · "+esc(x.customer_name):""}${x.reference?" · "+esc(x.reference):""} ${FLAG[x.status_prefix]||""} ${pendBadge(x)}</div>
-    <div class="body">${esc(x.content)}</div></div>`).join("") + (notes.length > n ? `<button class="btn sec block" id="moreNotes">Show all ${notes.length} notes</button>` : "");
+    <div class="body">${esc(x.content)}</div>${x._pdf?`<button class="btn sm sec" style="margin-top:6px" data-pdf="${esc(x._pdf)}">📄 View / share PDF</button>`:""}</div>`).join("") + (notes.length > n ? `<button class="btn sec block" id="moreNotes">Show all ${notes.length} notes</button>` : "");
 }
 
 // ---------- FORMS ----------
@@ -706,6 +746,235 @@ route(/^#\/newco$/, () => {
   setTimeout(() => inp.focus(), 50);
 });
 
+// ---------- LINE EDITOR (quotes, orders, sign-off) ----------
+function lineEdHtml(withShipping = true) {
+  return `<datalist id="prods">${productList().map(p => `<option value="${esc(p.name)}">`).join("")}</datalist>
+    <label class="f">Items</label><div id="lines"></div>
+    <button type="button" class="btn sec sm" id="addLine">+ Add another item</button>
+    <div class="two"><div><label class="f">VAT %</label><input class="f" id="vatPct" type="number" inputmode="decimal" step="any" value="${defaultVatPct()}"></div>
+    ${withShipping?`<div><label class="f">Shipping £</label><input class="f" id="ship" type="number" inputmode="decimal" step="0.01" value="0"></div>`:"<div></div>"}</div>
+    <div class="totals" id="totals"></div>`;
+}
+function initLineEd(key, mode, onChange) {
+  const host = $("#lines");
+  const add = () => {
+    const d = document.createElement("div"); d.className = "lineed";
+    d.innerHTML = `<input class="f" data-f="product" list="prods" placeholder="Product – pick from list or type" autocomplete="off">
+      <div class="lr"><div><label class="f" style="margin-top:4px">Qty (rolls/units)</label><input class="f" data-f="qty" type="number" inputmode="decimal" step="any" value="1"></div>
+      <div><label class="f" style="margin-top:4px">£ each (ex VAT)</label><input class="f" data-f="price" type="number" inputmode="decimal" step="0.01"></div>
+      <button type="button" class="x" title="Remove">✕</button></div><div class="hint"></div>`;
+    host.appendChild(d);
+    const prod = d.querySelector("[data-f=product]"), price = d.querySelector("[data-f=price]"), hint = d.querySelector(".hint");
+    prod.addEventListener("input", () => {
+      const p = productByName(prod.value);
+      if (p) { const lp = lastPrice(key, p.name); if (lp && !price.value) price.value = lp;
+        hint.textContent = "✓ In your catalogue" + (lp ? ` · last price for them £${(+lp).toFixed(2)}` : ""); }
+      else hint.textContent = prod.value.trim() ? (mode === "quote" ? "Not in catalogue – saved as typed" : "Not in catalogue – will be added to Products when imported") : "";
+      update();
+    });
+    d.querySelector(".x").onclick = () => { if (host.children.length > 1) { d.remove(); update(); } };
+    d.querySelectorAll("input").forEach(i => i.addEventListener("input", update));
+    return d;
+  };
+  const read = () => [...host.children].map(d => {
+    const name = d.querySelector("[data-f=product]").value.trim(), p = productByName(name);
+    return {product_id: p ? +p.id : null, product_name: p ? p.name : name, description: p ? p.name : name, section: p ? (p.section || "Film") : "Film",
+      quantity: +d.querySelector("[data-f=qty]").value || 0, price: +d.querySelector("[data-f=price]").value || 0};
+  }).filter(l => l.description);
+  const vat = () => (+($("#vatPct").value) || 0) / 100;
+  const ship = () => $("#ship") ? (+$("#ship").value || 0) : 0;
+  function update() {
+    const c = lineCalc(read().map(l => ({quantity: l.quantity, unit_price: l.price})), vat(), ship());
+    const g = n => "£" + n.toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    $("#totals").innerHTML = `<div><span>Goods</span><span>${g(c.subtotal)}</span></div>${c.shipping_cost?`<div><span>Shipping</span><span>${g(c.shipping_cost)}</span></div>`:""}
+      <div><span>VAT</span><span>${g(c.vat_amount)}</span></div><div class="gt"><span>Total</span><span>${g(c.grand_total)}</span></div>`;
+    if (onChange) onChange();
+  }
+  add();
+  $("#addLine").onclick = () => { add().querySelector("input").focus(); };
+  ["vatPct", "ship"].forEach(id => { const el = $("#" + id); if (el) el.addEventListener("input", update); });
+  update();
+  return {read, vat, ship, calc: () => lineCalc(read().map(l => ({quantity: l.quantity, unit_price: l.price})), vat(), ship())};
+}
+
+route(/^#\/add\/quote\/(.+)$/, key => {
+  const c = IDX.co.get(key); if (!c) return go("#/");
+  const sts = (SNAP && SNAP.quote_statuses) || ["Pending","Accepted","Rejected","Expired","Counter-offered","On hold"];
+  form("Quote · " + c.name, "#/c/" + key, `
+    <div class="two"><div><label class="f">Date</label><input class="f" type="date" name="date" value="${localDate()}"></div>
+    <div><label class="f">Status</label><select class="f" name="status">${sts.map(x => `<option>${esc(x)}</option>`).join("")}</select></div></div>
+    ${lineEdHtml(true)}
+    <div class="two"><div><label class="f">Chase on</label><input class="f" type="date" name="follow_up_date" value="${addDays(7)}"></div>
+    <div><label class="f">Quote no. (optional)</label><input class="f" name="quote_number"></div></div>
+    <label class="f">Up against (competitor, optional)</label><input class="f" name="competitor">
+    <label class="f">Notes</label><textarea class="f" name="notes" style="min-height:70px"></textarea>`, "Save quote",
+    async fd => { const ls = ed.read(); if (!ls.length) throw new Error("add at least one item");
+      await addEvent("quote_new", key, {date: fd.date || localDate(), status: fd.status || "Pending", follow_up_date: fd.follow_up_date || "",
+        quote_number: fd.quote_number || "", competitor: fd.competitor || "", notes: fd.notes || "", vat_rate: ed.vat(), shipping_cost: ed.ship(),
+        lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, quoted_price: l.price, agreed_price: null}))}); });
+  const ed = initLineEd(key, "quote");
+});
+route(/^#\/add\/order\/(.+)$/, key => {
+  const c = IDX.co.get(key); if (!c) return go("#/");
+  form("Order · " + c.name, "#/c/" + key, `
+    <label class="f">Order date</label><input class="f" type="date" name="order_date" value="${localDate()}">
+    ${lineEdHtml(true)}
+    <label class="f">Notes</label><textarea class="f" name="notes" style="min-height:70px" placeholder="e.g. PO number, delivery details"></textarea>`, "Save order",
+    async fd => { const ls = ed.read(); if (!ls.length) throw new Error("add at least one item");
+      await addEvent("order_new", key, {order_date: fd.order_date || localDate(), notes: fd.notes || "", vat_rate: ed.vat(), shipping_cost: ed.ship(),
+        lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, unit_price: l.price}))}); });
+  const ed = initLineEd(key, "order");
+});
+
+// ---------- SIGN-OFF SHEET (signature + PDF) ----------
+let _jspdfP;
+function loadJsPDF() {
+  if (window.jspdf) return Promise.resolve();
+  return _jspdfP || (_jspdfP = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "jspdf.umd.min.js";
+    sc.onload = res; sc.onerror = () => { _jspdfP = null; rej(new Error("PDF maker not downloaded yet – open the app once with signal")); }; document.head.appendChild(sc); }));
+}
+const pdfSafe = t => String(t ?? "").replace(/[—–]/g, "-").replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/…/g, "...").replace(/[^\x0A\x20-\x7E -ÿ]/g, "");
+function longDate(d = new Date()) { return `${d.getDate()} ${["January","February","March","April","May","June","July","August","September","October","November","December"][d.getMonth()]} ${d.getFullYear()}`; }
+function sigPad(canvas) {
+  const ctx = canvas.getContext("2d"); let drawing = false, dirty = false, last = null;
+  const fit = () => { const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = r.width * dpr; canvas.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineWidth = 2.4; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = "#0b1f4b"; dirty = false; };
+  fit();
+  const pos = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  canvas.addEventListener("pointerdown", e => { drawing = true; last = pos(e); canvas.setPointerCapture(e.pointerId); e.preventDefault(); });
+  canvas.addEventListener("pointermove", e => { if (!drawing) return; const p = pos(e);
+    ctx.beginPath(); ctx.moveTo(last[0], last[1]); ctx.lineTo(p[0], p[1]); ctx.stroke(); last = p; dirty = true; e.preventDefault(); });
+  const end = () => { drawing = false; };
+  canvas.addEventListener("pointerup", end); canvas.addEventListener("pointercancel", end);
+  return {clear: fit, isEmpty: () => !dirty, png: () => canvas.toDataURL("image/png")};
+}
+function makeSignoffPdf(o) {
+  const {jsPDF} = window.jspdf; const doc = new jsPDF({unit: "pt", format: "a4"});
+  const W = 595.28, L = 65, R = W - 65, CW = R - L; let y = 55 + 34;
+  doc.setFont("times", "bold"); doc.setFontSize(48); doc.setTextColor(255, 0, 0); doc.text("KEMPNER", W / 2, y, {align: "center"}); y += 26;
+  doc.setTextColor(0, 0, 0); doc.setFontSize(10);
+  for (const l of ["S. Kempner Limited", "498-500 Honeypot Lane, Stanmore, Middlesex, HA7 1JZ.", "Telephone: 020 8952 5262  Facsimile: 020 8952 8061", "www.kempner.co.uk"]) { doc.text(l, W / 2, y, {align: "center"}); y += 13; }
+  y += 6; doc.setFont("times", "bolditalic"); doc.setFontSize(11);
+  for (const l of ["THE COUNTRY'S LARGEST DISTRIBUTORS OF", "DISPLAY SHRINK MATERIALS AND MACHINERY.", "AND", "CERTIFICATED TO ISO 9001:2015"]) { doc.text(l, W / 2, y, {align: "center"}); y += 13; }
+  y += 24;
+  // customer block + date
+  doc.setFont("times", "bold"); doc.setFontSize(12);
+  const top = y; doc.text(pdfSafe(o.company), L, y); y += 15;
+  doc.setFont("times", "normal"); doc.setFontSize(11);
+  for (const l of o.addressLines) { if (l.trim()) { doc.text(pdfSafe(l), L, y); y += 13; } }
+  doc.text(pdfSafe(o.dateText), R, top, {align: "right"});
+  y += 10; doc.setFont("times", "bold"); doc.text(pdfSafe(`For the attention of ${o.person}${o.position ? ", " + o.position : ""}`), L, y); y += 26;
+  doc.setFontSize(14); doc.text("Goods Left on Site - Customer Acknowledgement", L, y);
+  doc.setLineWidth(0.6); doc.line(L, y + 3, L + doc.getTextWidth("Goods Left on Site - Customer Acknowledgement"), y + 3); y += 24;
+  // table
+  const g = n => "£" + (+n).toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const cols = [L, R - 190, R - 110, R];
+  doc.setFontSize(11); doc.setFont("times", "bold");
+  doc.text("Item", cols[0], y); doc.text("Qty", cols[1], y, {align: "right"}); doc.text("Unit price", cols[2], y, {align: "right"}); doc.text("Line total", cols[3], y, {align: "right"});
+  y += 5; doc.line(L, y, R, y); y += 14; doc.setFont("times", "normal");
+  for (const l of o.lines) {
+    const wrapped = doc.splitTextToSize(pdfSafe(l.description), cols[1] - cols[0] - 50);
+    doc.text(wrapped, cols[0], y); doc.text(num(l.quantity), cols[1], y, {align: "right"});
+    doc.text(g(l.price), cols[2], y, {align: "right"}); doc.text(g(l.quantity * l.price), cols[3], y, {align: "right"});
+    y += 14 * wrapped.length + 2;
+  }
+  doc.line(L, y - 6, R, y - 6); y += 8;
+  const tot = (lab, val, bold) => { doc.setFont("times", bold ? "bold" : "normal"); doc.text(lab, cols[2], y, {align: "right"}); doc.text(val, cols[3], y, {align: "right"}); y += 15; };
+  tot("Goods", g(o.calc.subtotal)); if (o.calc.shipping_cost) tot("Shipping", g(o.calc.shipping_cost));
+  tot(`VAT (${num(o.vatRate * 100)}%)`, g(o.calc.vat_amount)); tot("Total", g(o.calc.grand_total), true);
+  y += 14;
+  doc.setFont("times", "normal"); doc.setFontSize(12);
+  const st = doc.splitTextToSize(pdfSafe(o.statement), CW); doc.text(st, L, y); y += 16 * st.length + 10;
+  doc.setFontSize(11); doc.setFont("times", "italic");
+  const conf = doc.splitTextToSize("I confirm the goods listed above have been received and left on site, and I agree to the terms stated.", CW);
+  doc.text(conf, L, y); y += 14 * conf.length + 8;
+  if (y > 640) { doc.addPage(); y = 80; }
+  // signature
+  doc.setFont("times", "bold"); doc.text("Signed:", L, y + 40);
+  const img = doc.getImageProperties(o.sig); const sw = 230, sh = Math.min(90, sw * img.height / img.width);
+  doc.addImage(o.sig, "PNG", L + 55, y, sw, sh); y += Math.max(sh, 50) + 6;
+  doc.setLineWidth(0.5); doc.line(L + 55, y, L + 55 + sw, y); y += 18;
+  doc.setFont("times", "normal");
+  doc.text(pdfSafe(`Name: ${o.person}${o.position ? "   Position: " + o.position : ""}`), L, y); y += 15;
+  doc.text(pdfSafe(`Date & time signed: ${o.dateText}, ${o.timeText}`), L, y); y += 15;
+  doc.text(pdfSafe(`For S. Kempner Limited: ${o.rep}`), L, y); y += 15;
+  doc.setFontSize(8); doc.setTextColor(120);
+  doc.text(pdfSafe(`Ref ${o.ref} · signed electronically on a mobile device`), L, 810);
+  return doc.output("datauristring");
+}
+function dataUriToFile(uri, name) {
+  const b64 = uri.split(",")[1], bin = atob(b64), arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new File([arr], name, {type: "application/pdf"});
+}
+async function sharePdf(uri, name) {
+  const f = dataUriToFile(uri, name);
+  if (navigator.canShare && navigator.canShare({files: [f]})) { try { await navigator.share({files: [f], title: name}); return; } catch (e) { if (e.name === "AbortError") return; } }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = name; a.target = "_blank"; document.body.appendChild(a); a.click(); a.remove();
+}
+route(/^#\/sign\/(.+)$/, key => {
+  const c = IDX.co.get(key); if (!c) return go("#/");
+  loadJsPDF().catch(() => {});
+  const ppl = people(key), main = ppl.find(p => p.is_main_contact) || ppl[0];
+  const rep = META.user || (SNAP && SNAP.current_user) || "";
+  form("Sign-off · " + c.name, "#/c/" + key, `<datalist id="ppl">${ppl.map(p => `<option value="${esc(p.name)}">`).join("")}</datalist>
+    <div class="two"><div><label class="f">Customer name (signing)</label><input class="f" name="person" list="ppl" value="${esc(main ? main.name : "")}" required></div>
+    <div><label class="f">Position (optional)</label><input class="f" name="position"></div></div>
+    ${lineEdHtml(true)}
+    <label class="f">Payment</label><select class="f" name="terms" id="terms">
+      <option>later today</option><option>on receipt of invoice</option><option>within 7 days</option><option>within 30 days</option><option value="">(write my own below)</option></select>
+    <label class="f">Wording on the sheet (edit freely)</label><textarea class="f" name="statement" id="stmt" style="min-height:110px"></textarea>
+    <label class="check"><input type="checkbox" name="log_order" checked> Also log this as an order in the CRM</label>
+    <label class="check"><input type="checkbox" name="invoice_action" checked> Add an action for today: raise the invoice</label>
+    <label class="f">Signed for Kempner by</label><input class="f" name="rep" value="${esc(rep)}">
+    <label class="f">Customer signature</label>
+    <div class="sigwrap"><canvas id="sig"></canvas><div class="line"></div><div class="lbl">Sign here with a finger</div></div>
+    <button type="button" class="btn sec sm" id="sigClear" style="margin-top:6px">Clear signature</button>`, "✍️ Create signed PDF",
+    async fd => {
+      const ls = ed.read(); if (!ls.length) throw new Error("add at least one item");
+      if (pad.isEmpty()) throw new Error("the customer hasn't signed yet");
+      if (!fd.statement) throw new Error("the wording is empty");
+      await loadJsPDF();
+      const now = new Date(), calc = ed.calc();
+      const addr = rows("addresses", key)[0];
+      const ref = uuid().slice(0, 8).toUpperCase();
+      const pdf = makeSignoffPdf({company: c.name, addressLines: addr ? String(addr.lines || "").split("\n") : [], person: fd.person, position: fd.position || "",
+        dateText: longDate(now), timeText: localTime(now), lines: ls, calc, vatRate: ed.vat(), statement: fd.statement, sig: pad.png(), rep: fd.rep || rep, ref});
+      const filename = `Kempner signed sheet - ${c.name} - ${localDate(now)}.pdf`.replace(/[\\/:*?"<>|]/g, "-");
+      const ev = await addEvent("signoff", key, {person: fd.person, position: fd.position || "", statement: fd.statement, rep: fd.rep || rep, ref,
+        lines: ls.map(l => ({description: l.description, quantity: l.quantity, unit_price: l.price})), vat_rate: ed.vat(), shipping_cost: ed.ship(),
+        total: calc.grand_total, filename, pdf_b64: pdf});
+      if (fd.log_order) await addEvent("order_new", key, {order_date: localDate(now), notes: `Left on site – signed by ${fd.person} (ref ${ref})`, vat_rate: ed.vat(), shipping_cost: ed.ship(),
+        lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, unit_price: l.price}))});
+      if (fd.invoice_action) await addEvent("action_new", key, {date: localDate(now), time: "", note: `Raise invoice – ${ls.map(l => `${num(l.quantity)}× ${l.description}`).join(", ")} (£${calc.grand_total.toFixed(2)} inc VAT), signed by ${fd.person}, payment ${fd.terms || "as agreed"}`, tier: 1, channel: "admin"});
+      location.replace("#/signed/" + encodeURIComponent(key) + "/" + ev.id); return false;
+    });
+  let ed = null; const stmt = $("#stmt"); let touched = false;
+  const g = n => "£" + n.toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const auto = () => { if (touched || !ed) return; const ls = ed.read(), calc = ed.calc(), terms = $("#terms").value;
+    const items = ls.map(l => `${num(l.quantity)} ${/film|µ|mu|micron|mm/i.test(l.description) ? (l.quantity == 1 ? "roll" : "rolls") + " of " : "x "}${l.description} at ${g(l.price)} each`).join("; ");
+    stmt.value = (items ? items + " left on site" : "Goods left on site") + `, total ${g(calc.grand_total)} including VAT` + (terms ? `, to be invoiced and paid ${terms}.` : "."); };
+  ed = initLineEd(key, "order", () => auto());
+  stmt.addEventListener("input", () => { touched = true; });
+  $("#terms").addEventListener("change", () => { if (!$("#terms").value) { touched = true; stmt.focus(); } else auto(); });
+  const pad = sigPad($("#sig"));
+  $("#sigClear").onclick = () => pad.clear();
+  auto();
+});
+route(/^#\/signed\/([^/]+)\/(.+)$/, (key, id) => {
+  const ev = PENDING.find(x => x.id === id); const c = IDX.co.get(key);
+  if (!ev || !c) return go("#/c/" + key);
+  setHeader("Signed ✓", "#/c/" + key);
+  $("#view").innerHTML = `<div class="card"><h3 style="margin-top:0">Signed by ${esc(ev.data.person)} ✓</h3>
+    <p class="small">Saved on the phone. It goes into the CRM (PDF attached to ${esc(c.name)}) next time you sync.</p>
+    <button class="btn block" id="shareP">📤 Email / share the PDF</button>
+    <button class="btn block sec" id="openP">📄 View PDF</button>
+    <a class="btn block sec" href="#/c/${encodeURIComponent(key)}">Back to ${esc(c.name)}</a></div>`;
+  $("#shareP").onclick = () => sharePdf(ev.data.pdf_b64, ev.data.filename);
+  $("#openP").onclick = () => { const u = URL.createObjectURL(dataUriToFile(ev.data.pdf_b64, ev.data.filename)); window.open(u, "_blank") || (location.href = u); };
+});
+
 // ---------- SYNC ----------
 route(/^#\/sync$/, () => {
   setHeader("Sync", "#/");
@@ -763,6 +1032,9 @@ function describe(e) {
     case "meeting": return `🤝 ${d.status === "DONE" ? "Visit" : "Booked"} ${d.date}: ${d.notes || d.location || ""}`;
     case "contact_new": return `👤 ${d.name}`;
     case "company_new": return `🏢 New company: ${d.name}`;
+    case "quote_new": case "order_new": { const c = lineCalc(d.lines || [], d.vat_rate, d.shipping_cost);
+      return `${e.type === "quote_new" ? "💷 Quote" : "🛒 Order"}: ${(d.lines||[]).map(l => `${num(l.quantity)}× ${l.description || l.product_name}`).join(", ")} — £${c.grand_total.toFixed(2)}`; }
+    case "signoff": return `✍️ Signed by ${d.person || "customer"}: ${d.statement}`;
   }
   return e.type;
 }

@@ -80,3 +80,11 @@ You don't have to do both every day. Sync whenever it suits you.
 1. Upload the changed files to the GitHub repo.
 2. In `sw.js`, bump `kempner-mobile-v1` to `-v2`.
 3. Open the app twice. The first open fetches the update, and the second uses it.
+
+## Quotes, orders and signed sheets (added)
+
+- **💷 Quote** and **🛒 Order** on a company page work like the CRM's editors: pick products from your catalogue (or type a new one), set qty and price, and the VAT and shipping totals update as you go. They go into the CRM's Commercial tab when you sync.
+- **✍️ Sign-off** makes a Kempner-letterhead PDF covering the items, price and payment wording, with the customer's finger signature, name and the date.
+  - Afterwards, tap **Email / share the PDF** to send them a copy.
+  - When you sync, the PDF is attached to the company in the CRM and a note is added.
+  - It can also log the order and add a "raise invoice" action for today.
