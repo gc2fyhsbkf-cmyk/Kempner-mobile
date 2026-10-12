@@ -90,6 +90,28 @@ textarea.f{min-height:120px;resize:vertical}
 .kv b{color:var(--sub);font-weight:500}
 .money{font-variant-numeric:tabular-nums}
 .hidden{display:none}
+.score{width:34px;height:34px;flex:none;border-radius:50%;border:3px solid var(--amber);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--sub)}
+.score.hi{border-color:var(--green)}.score.lo{border-color:var(--red)}.score.na{border-color:var(--bd)}
+.s.alert{color:var(--red)}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 8px;border-radius:10px;margin:2px 4px 2px 0;background:var(--chip);color:var(--sub)}
+.t-red{color:var(--red)}.t-amber{color:var(--amber)}.t-green{color:var(--green)}.t-blue{color:var(--blue)}.t-muted{color:var(--muted)}.t-main{color:var(--txt)}.t-sub{color:var(--sub)}
+.pill.t-red{background:rgba(232,25,44,.12)}.pill.t-amber{background:rgba(245,158,11,.15)}.pill.t-blue{background:rgba(37,99,235,.12)}.pill.t-green{background:rgba(22,163,74,.12)}
+.glance{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.gchip{background:var(--card);border:1px solid var(--bd);border-top:3px solid var(--bd);border-radius:10px;padding:8px 10px;min-width:0}
+.gchip.b-red{border-top-color:var(--red)}.gchip.b-amber{border-top-color:var(--amber)}.gchip.b-green{border-top-color:var(--green)}.gchip.b-blue{border-top-color:var(--blue)}
+.gchip .gt{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.03em}
+.gchip .gv{font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.gchip .gs{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:10px 12px}
+.tile{border-radius:10px;padding:8px 4px;text-align:center;color:#fff}
+.tile b{display:block;font-size:16px}.tile span{font-size:11px;opacity:.9}
+.qhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.qhead .hl{font-weight:700;flex:1;min-width:120px}
+.stat{font-size:11px;font-weight:700;color:#fff;padding:2px 6px;border-radius:6px;background:#6b7280}
+.amt{font-weight:700;color:var(--green)}
+.amt.box{color:#fff;background:var(--green);padding:2px 7px;border-radius:6px}
+.tot{font-size:13px;font-weight:600;color:var(--green);margin-top:4px}
+.ratebox{font-weight:700;color:var(--green)}
 </style>
 </head>
 <body>
@@ -345,11 +367,29 @@ route(/^#\/$/, () => {
   homeBody();
   showFab(() => go("#/newco"));
 });
-function coRow(c, sub) {
-  const pc = pend(c._key).length;
-  return `<a class="row" href="#/c/${encodeURIComponent(c._key)}"><span class="dot" style="background:${STATUS_COL[c.status]||"var(--bd)"}"></span>
-    <div class="main"><div class="t">${c.pinned?"📌 ":""}${esc(c.name)}${c._pending?'<span class="badge">new</span>':pc?`<span class="badge">${pc}</span>`:""}</div>
-    ${sub?`<div class="s">${sub}</div>`:""}</div><span class="chev">›</span></a>`;
+function view(key) { return (SNAP && SNAP.views && SNAP.views[String(key)]) || null; }
+function dayDiff(d) { if (!d) return 9999; const a = new Date(d.slice(0,10) + "T00:00:00"), b = new Date(localDate() + "T00:00:00"); return Math.round((a - b) / 86400000); }
+function listSub(c) {
+  const v = view(c._key) || {}, parts = [];
+  const cust = v.customer || (people(c._key)[0] || {}).name;
+  if (cust) parts.push(esc(cust));
+  const open = actions(c._key).filter(a => a.status !== "DONE");
+  const over = open.filter(a => a.date && dayDiff(a.date) < 0);
+  let alert = false;
+  if (over.length) { parts.push(`⚠ ${over.length} overdue`); alert = true; }
+  else if (open.length) { const nd = Math.min(...open.map(a => dayDiff(a.date)));
+    if (nd === 0) parts.push("⏰ today"); else if (nd === 1) parts.push("📅 tomorrow"); else if (nd < 7) parts.push(`📅 ${nd}d`); }
+  return [parts.join("  "), alert];
+}
+function coRow(c) {
+  const pc = pend(c._key).length, v = view(c._key) || {};
+  const [sub, alert] = listSub(c);
+  const sc = v.score; const cls = sc == null ? "na" : sc >= 70 ? "hi" : sc < 40 ? "lo" : "";
+  const tags = rows("company_tags", c._key).slice(0, 3);
+  return `<a class="row" href="#/c/${encodeURIComponent(c._key)}"><span class="score ${cls}">${sc == null ? "" : esc(sc)}</span>
+    <div class="main"><div class="t">${c.pinned?"★ ":""}${esc(c.name)}${c._pending?'<span class="badge">new</span>':pc?`<span class="badge">${pc}</span>`:""}</div>
+    ${sub?`<div class="s ${alert?"alert":""}">${sub}</div>`:""}${tags.length?`<div>${tags.map(t=>`<span class="chip" style="font-size:10px">${esc(t.tag)}</span>`).join("")}</div>`:""}</div>
+    <span class="dot" style="background:${esc(v.dot || STATUS_COL[c.status] || "var(--bd)")}"></span></a>`;
 }
 function homeBody() {
   const out = [], all = [...IDX.co.values()].filter(c => c.status !== "ARCHIVED");
@@ -359,7 +399,7 @@ function homeBody() {
     const qd = digits(q), terms = q.split(/\s+/);
     const hits = scope.filter(c => { const h = haystack(c); return terms.every(t => h.includes(t)) || (qd.length >= 4 && h.includes(qd)); })
       .sort((a, b) => (b.name.toLowerCase().startsWith(q)) - (a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name));
-    out.push(`<h2>${hits.length} match${hits.length===1?"":"es"}</h2><div class="list">${hits.slice(0,homeLimit).map(c => coRow(c, esc(c.region||c.pipeline_stage||""))).join("") || '<div class="empty">Nothing found.</div>'}</div>`);
+    out.push(`<h2>${hits.length} match${hits.length===1?"":"es"}</h2><div class="list">${hits.slice(0,homeLimit).map(c => coRow(c)).join("") || '<div class="empty">Nothing found.</div>'}</div>`);
     if (hits.length > homeLimit) out.push(`<button class="btn sec block" id="more">Show more</button>`);
   } else {
     const today = localDate(), keys = new Set(scope.map(c => c._key));
@@ -378,7 +418,7 @@ function homeBody() {
       `<a class="row ${m._pending?"pend":""}" href="#/c/${encodeURIComponent(c._key)}"><div class="main"><div class="t">${esc(c.name)}</div>
       <div class="s">${niceDate(m.date)} ${esc(m.time||"")} · ${esc(m.location||m.notes||"")}</div></div><span class="chev">›</span></a>`).join("")}</div>`);
     const sorted = scope.slice().sort((a, b) => (b.pinned||0) - (a.pinned||0) || (b._pending?1:0) - (a._pending?1:0) || a.name.localeCompare(b.name));
-    out.push(`<h2>Companies (${sorted.length})</h2><div class="list">${sorted.slice(0, homeLimit).map(c => coRow(c, esc([c.region, c.pipeline_stage].filter(Boolean).join(" · ")))).join("") || '<div class="empty">None.</div>'}</div>`);
+    out.push(`<h2>Companies (${sorted.length})</h2><div class="list">${sorted.slice(0, homeLimit).map(c => coRow(c)).join("") || '<div class="empty">None.</div>'}</div>`);
     if (sorted.length > homeLimit) out.push(`<button class="btn sec block" id="more">Show more (${sorted.length - homeLimit})</button>`);
   }
   $("#homeBody").innerHTML = out.join("");
@@ -403,11 +443,17 @@ route(/^#\/c\/(.+)$/, key => {
   const addrs = rows("addresses", key);
   const tags = rows("company_tags", key);
   const owner = c.assigned_to != null ? IDX.users.get(String(c.assigned_to)) : "";
+  const v = view(key) || {};
+  const pc = v.primary && (v.primary.name || v.primary.number) ? v.primary : (main ? {name: main.name, number: mainNum ? mainNum.number : ""} : null);
   const h = [];
-  h.push(`<div class="card ${c._pending?"pend":""}"><div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${STATUS_COL[c.status]||"var(--bd)"}"></span>
-    <b style="font-size:18px">${esc(c.name)}</b>${c._pending?'<span class="badge">new – not synced</span>':""}</div>
-    <div style="margin-top:4px">${c.status && c.status!=="NONE"?`<span class="chip">${esc(c.status)}</span>`:""}${c.pipeline_stage?`<span class="chip">${esc(c.pipeline_stage)}</span>`:""}${c.region?`<span class="chip">📍 ${esc(c.region)}</span>`:""}${owner?`<span class="chip">👤 ${esc(owner)}</span>`:""}${c.vibe?`<span class="chip">${esc(c.vibe)}</span>`:""}${tags.map(t=>`<span class="chip">#${esc(t.tag)}</span>`).join("")}</div>
-    ${main?`<div class="small" style="margin-top:8px">${esc(main.name)}${main.org_role?" · "+esc(main.org_role):""}</div>`:""}
+  h.push(`<div class="card ${c._pending?"pend":""}"><div style="display:flex;align-items:center;gap:8px"><span class="dot" style="background:${esc(v.dot || STATUS_COL[c.status] || "var(--bd)")}"></span>
+    <b style="font-size:18px;flex:1">${esc(c.name)}</b>${c._pending?'<span class="badge">new – not synced</span>':""}${v.score!=null?`<span class="score ${v.score>=70?"hi":v.score<40?"lo":""}">${esc(v.score)}</span>`:""}</div>
+    ${v.last_contact?`<div class="small" style="margin-top:4px">Last contact: ${esc(v.last_contact)}</div>`:""}
+    ${pc?`<div class="small" style="margin-top:2px">${pc.name?"👤 "+esc(pc.name):""}${pc.number?"&nbsp;&nbsp;★ "+telLink(pc.number):""}${main&&main.org_role?" · "+esc(main.org_role):""}</div>`:""}
+    <div style="margin-top:6px"><span class="pill t-blue">📈 ${esc(c.pipeline_stage||"Prospect")}</span>${c.status && c.status!=="NONE"?`<span class="pill">${esc(c.status)}</span>`:""}<span class="pill">🧑‍💼 ${esc(v.owners || owner || "Unassigned")}</span>${v.reorder?`<span class="pill t-${esc(v.reorder.tone)}">${esc(v.reorder.text)}</span>`:""}${c.region?`<span class="pill">📍 ${esc(c.region)}</span>`:""}</div>
+    ${tags.length?`<div>${tags.map(t=>`<span class="chip">🏷 ${esc(t.tag)}</span>`).join("")}</div>`:""}
+    ${v.rate?`<div style="margin-top:6px"><span class="ratebox">${esc(v.rate.text)}</span> <span class="small">${esc(v.rate.sub||"")}</span></div>`:""}
+    ${c.vibe?`<div class="small" style="margin-top:4px">💬 ${esc(c.vibe)}</div>`:""}
     <div class="contactbar">${mainNum?`<a class="btn sm" href="tel:${esc(digits(mainNum.number))}">📞 Call</a><a class="btn sm sec" href="sms:${esc(digits(mainNum.number))}">💬 Text</a>`:""}
     ${mainEmail?`<a class="btn sm sec" href="mailto:${esc(mainEmail)}">✉️ Email</a>`:""}
     ${addrs[0]?`<a class="btn sm sec" href="https://maps.apple.com/?q=${encodeURIComponent((addrs[0].lines||"").replace(/\n/g,", "))}">🗺 Map</a>`:""}</div></div>`);
@@ -416,6 +462,17 @@ route(/^#\/c\/(.+)$/, key => {
     <a class="btn" href="#/add/action/${encodeURIComponent(key)}"><span>✅</span>Action</a>
     <a class="btn" href="#/add/meeting/${encodeURIComponent(key)}"><span>🤝</span>Visit</a>
     <a class="btn" href="#/add/contact/${encodeURIComponent(key)}"><span>👤</span>Contact</a></div>`);
+  if (v.glance) {
+    const g = v.glance.map(x => Object.assign({}, x));
+    // keep NEXT ACTION honest about things ticked/added on the phone
+    const na = g.find(x => x.title === "NEXT ACTION");
+    if (na) { const openA = actions(key).filter(a => a.status !== "DONE").sort((a, b) => (a.date||"").localeCompare(b.date||""));
+      const still = na.next_action_id && openA.find(a => a.id === na.next_action_id);
+      const pick = still || openA[0];
+      if (pick) { na.value = pick.note; na.sub = niceDate(pick.date); na.tone = "main"; } else { na.value = "None open"; na.sub = ""; na.tone = "muted"; } }
+    h.push(`<div class="glance">${g.map(x => `<div class="gchip b-${esc(x.tone)}"><div class="gt">${esc(x.icon)} ${esc(x.title)}</div>
+      <div class="gv t-${esc(x.tone==="main"?"main":x.tone)}">${esc(x.value)}</div>${x.sub?`<div class="gs">${esc(x.sub)}</div>`:""}</div>`).join("")}</div>`);
+  }
 
   // actions
   const acts = actions(key);
@@ -471,33 +528,36 @@ route(/^#\/c\/(.+)$/, key => {
      ${p.category?`<span class="chip">${esc(p.category)}</span>`:""}${p.frequency?`<span class="chip">${esc(p.frequency)}</span>`:""}
      <div class="small">${[p.length_mm,p.width_mm,p.height_mm].some(x=>x)?`${num(p.length_mm)} × ${num(p.width_mm)} × ${num(p.height_mm)} mm`:""}${p.thickness_micron?` · ${num(p.thickness_micron)}µ`:""}</div>
      ${p.notes?`<div class="small">${esc(p.notes)}</div>`:""}</div>`).join("")));
-  // quotes
-  const qs = rows("quotes", key);
-  if (qs.length) {
-    const groups = new Map();
-    for (const q of qs) { const g = q.quote_number || q.id; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(q); }
-    const gl = [...groups.entries()].sort((a, b) => (b[1][0].date||"").localeCompare(a[1][0].date||""));
-    h.push(section("💷 Quotes", gl.length, gl.map(([g, lines]) => {
-      const f = lines[0]; let tot = 0;
-      const lh = lines.map(l => { const p = l.final_price ?? l.initial_price; const q = l.quantity || 1; if (p != null) tot += p * q;
-        return `<div class="small">• ${esc(l.description)}${q!=1?` — ${num(q)} ×`:" —"} ${money(p)}${l.final_price!=null && l.initial_price!=null && l.final_price!=l.initial_price?` <s>${money(l.initial_price)}</s>`:""}</div>`; }).join("");
-      const vat = f.vat_rate ? tot * f.vat_rate : 0, ship = +f.shipping_cost || 0;
-      return `<div class="item"><div class="meta">${niceDate(f.date)}${f.quote_number?" · #"+esc(f.quote_number):""} · <b>${esc(f.status||"")}</b>${f.follow_up_date?" · follow up "+niceDate(f.follow_up_date):""}</div>${lh}
-        <div class="money" style="margin-top:4px"><b>${money(tot + ship)}</b> ex VAT${vat?` · ${money(tot + ship + vat)} inc`:""}${ship?` <span class="small">(incl ${money(ship)} carriage)</span>`:""}</div>
-        ${f.competitor?`<div class="small">vs ${esc(f.competitor)}</div>`:""}${f.notes?`<div class="small">${esc(f.notes)}</div>`:""}</div>`; }).join("")));
-  }
-  // orders
-  const fo = rows("film_orders", key);
-  if (fo.length) {
-    const groups = new Map();
-    for (const o of fo) { const g = o.group_id || o.id; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
-    const gl = [...groups.values()].sort((a, b) => (b[0].order_date||"").localeCompare(a[0].order_date||""));
-    h.push(section("🧾 Orders", gl.length, gl.map(lines => { let tot = 0;
-      const lh = lines.map(o => { const nm = (IDX.products[String(o.product_id)] || {}).name || o.description || "Item"; tot += (o.quantity||0) * (o.unit_price||0);
-        return `<div class="small">• ${esc(nm)} — ${num(o.quantity)} × ${money(o.unit_price)}</div>`; }).join("");
-      const ship = lines.reduce((s, o) => s + (+o.shipping_cost || 0), 0);
-      return `<div class="item"><div class="meta">${niceDate(lines[0].order_date)}</div>${lh}<div class="money"><b>${money(tot + ship)}</b> ex VAT</div>
-        ${lines[0].notes?`<div class="small">${esc(lines[0].notes)}</div>`:""}</div>`; }).join("")));
+  // commercial: quotes & orders exactly as the CRM's Commercial tab computes them
+  const gbp = n => "£" + (+n || 0).toLocaleString("en-GB", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const gbp0 = n => "£" + Math.round(+n || 0).toLocaleString("en-GB");
+  const totLine = g => `Goods ${gbp(g.subtotal)}${g.shipping_cost?` + Shipping ${gbp(g.shipping_cost)}`:""} = ${gbp((g.subtotal||0) + (g.shipping_cost||0))} +VAT ${gbp(g.vat_amount)} → ${gbp(g.grand_total)}`;
+  const icon = ln => ln.section === "Film" ? "🎞" : ln.section === "Machines" ? "⚙" : "•";
+  const STAT_COL = {won:"#16a34a",accepted:"#16a34a",pending:"#f59e0b",negotiating:"#f59e0b","counter-offered":"#f59e0b","on hold":"#6b7280",lost:"#e8192c",rejected:"#e8192c",expired:"#6b7280"};
+  if (v.quote_groups || v.order_groups) {
+    const qg = v.quote_groups || [], og = v.order_groups || [], cm = v.commercial || {};
+    const tiles = `<div class="tiles"><div class="tile" style="background:#2563eb"><b>${esc(cm.total_quotes ?? qg.length)}</b><span>Total quotes</span></div>
+      <div class="tile" style="background:#16a34a"><b>${esc(cm.win_rate ?? "—")}</b><span>Win rate</span></div>
+      <div class="tile" style="background:#f59e0b"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div>
+      <div class="tile" style="background:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
+      <div class="tile" style="background:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>
+      ${v.reorder?`<div class="tile" style="background:#6b7280"><b style="font-size:12px">${esc(v.reorder.text.replace(/^\S+\s/,""))}</b><span>Film reorder</span></div>`:""}</div>`;
+    const qHtml = qg.map(g => `<div class="item"><div class="qhead"><span class="small">${niceDate(g.date)}</span><span class="hl">${esc(g.headline)}</span>
+        <span class="stat" style="background:${STAT_COL[String(g.status||"").toLowerCase()]||"#6b7280"}">${esc(g.status)}</span><span class="amt">${gbp(g.grand_total)}</span></div>
+        ${g.quote_number?`<div class="small"><b>${esc(g.quote_number)}</b></div>`:""}
+        ${(g.lines||[]).map(ln => { const pr = ln.agreed_price || ln.quoted_price || 0;
+          return `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(pr)}${ln.agreed_price && ln.quoted_price && ln.agreed_price != ln.quoted_price ? ` (was ${gbp(ln.quoted_price)})` : ""}</div>`; }).join("")}
+        <div class="tot">${totLine(g)}</div>
+        ${g.follow_up_date?`<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>`:""}${g.competitor?`<div class="small">vs ${esc(g.competitor)}</div>`:""}${g.notes?`<div class="small">${esc(g.notes)}</div>`:""}</div>`).join("");
+    const oHtml = og.map(g => `<div class="item"><div class="qhead"><span class="small">${niceDate(g.order_date)}</span><span class="hl">${esc(g.headline)}</span><span class="amt box">${gbp(g.grand_total)}</span></div>
+        ${(g.lines||[]).map(ln => `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(ln.unit_price)}</div>`).join("")}
+        <div class="tot">${totLine(g)}</div>${g.notes?`<div class="small">${esc(g.notes)}</div>`:""}</div>`).join("");
+    h.push(section("💷 Commercial", `${qg.length} quotes · ${og.length} orders`, tiles
+      + `<div class="item" style="background:var(--chip);font-weight:700">Quotes (${qg.length})</div>` + (qHtml || '<div class="empty">None.</div>')
+      + `<div class="item" style="background:var(--chip);font-weight:700">Orders (${og.length})</div>` + (oHtml || '<div class="empty">None.</div>')));
+  } else {
+    const qs = rows("quotes", key), fo = rows("film_orders", key);
+    if (qs.length || fo.length) h.push(section("💷 Commercial", `${qs.length + fo.length}`, `<div class="empty">Re-export the snapshot from the updated CRM to see quotes and orders with full totals.</div>`));
   }
   // call-offs
   const co = rows("call_off_agreements", key);

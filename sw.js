@@ -1,6 +1,6 @@
 // Kempner Mobile service worker: caches the app itself so it opens with no signal.
 // Your CRM data is NOT here — it lives in the phone's IndexedDB, never on the web.
-const CACHE = "kempner-mobile-v1";
+const CACHE = "kempner-mobile-v2";
 const ASSETS = ["./", "index.html", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
