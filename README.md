@@ -1,90 +1,41 @@
-# Kempner Mobile — set-up & daily use
+# Kempner Mobile
 
-An offline phone app for your Kempner CRM. It's free: no App Store, no hosting bill, no subscription.
+An offline phone companion to the Kempner CRM. It's free: no App Store and no hosting bill. Your data stays on your phone and only moves when you send a file.
 
-- **What's hosted online:** only the app's code (these files). That's a blank shell with no customer data in it.
-- **Where your data lives:** only on your phone, and it only moves when you send a file yourself.
+## Files (all at the top level on GitHub, no folders)
+`index.html`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
 
----
+To update: on GitHub, **Add file → Upload files**, drag in all the files and **Commit**. Then open the app twice with signal.
 
-## 1. One-time: put the app online (free, about 10 minutes)
+## The tabs
+- **Today**: overdue and due actions (tick ✓ to complete), meetings for the next 7 days with directions, plus the CRM's film reorders to chase and accounts that need a nudge.
+- **Companies**: search by name, person, phone number, postcode or tag. Filter by Mine/Everyone and status, and sort by A–Z, most overdue, health score or recently updated.
+- **Company page**: Call / Text / Email / Directions, a big **＋ Add** button, and tabs for Overview · Notes · Actions · Meetings · People · Commercial · Equipment · Files.
+- **Nearby**: your customers sorted by distance from where you are. Needs signal the first time only, to look up postcodes.
+- **Prices**: what each product last sold for, and to whom, plus the CRM's calculators (GP, VAT, price per m², thickness).
+- **Sync**: send changes to the CRM and load the latest snapshot.
 
-You can use GitHub Pages, which is free. Any free static host works the same way, for example Netlify Drop or Cloudflare Pages.
+## Adding things (all go into the CRM when you sync)
+- **Notes** using the CRM's own templates, with an optional status change (Urgent / Warm / OK / Cold).
+- **Call logging**:
+  - after you call from the app, it asks how it went
+  - uses the same "Asked / noted" questions as Live Call
+  - you can add a follow-up action.
+- **Actions** with quick dates and priorities. **Mark done** records the outcome, with a "same again next week" option.
+- **Visits / meetings** by type (film trial, commission, service, machine demo, check-up).
+  - Films and machines you saw are added to the equipment list.
+  - A meeting already booked in the CRM can be logged as done.
+- **Photos** are attached to the company in the CRM, with a note.
+- **Quotes** and **orders** use your product catalogue and the price that customer last paid, with VAT and shipping totals. A quote can also add a "chase quote" action.
+- **Sign-off sheets**: a PDF on the Kempner letterhead with the customer's finger signature. There are five kinds:
+  - goods left on site
+  - delivery note
+  - film trial agreement
+  - collection
+  - work completed.
+- **📅 Add to Calendar** on meetings and actions puts them in the iPhone Calendar with a reminder.
 
-1. Make a free account at **github.com**.
-2. Click **+** (top right) and choose **New repository**.
-   - Name it `kempner-mobile`.
-   - Set it to **Public**. Free Pages needs public, but these files contain no customer data.
-   - Click **Create repository**.
-3. On the new repo page, click **uploading an existing file**.
-   - Drag in **everything from this folder**: `index.html`, `sw.js`, `manifest.webmanifest`, and the `icons` folder.
-   - Click **Commit changes**.
-4. Go to **Settings → Pages**.
-   - Under "Branch", pick **main** and **/(root)**, then click **Save**.
-   - After a minute the page shows your address, e.g. `https://yourname.github.io/kempner-mobile/`.
-
-## 2. One-time: install it on the iPhone
-
-1. Open that address in **Safari**. It must be Safari, not Chrome, for Home Screen install on iPhone.
-2. Tap the **Share** button, then **Add to Home Screen**, then **Add**.
-3. From now on, always open it from the **Home Screen icon**. It works with no signal.
-
-> Data saved inside the Home Screen app is kept separately from Safari. Always use the icon, and iOS won't clear it.
-
-## 3. One-time: the CRM side
-
-Replace your CRM `.py` with the updated one, keeping a copy of the old file just in case.
-
-There's a new **📱 Phone sync** button on the Today page, next to "📲 Import visits". You can also set a **sync folder** there, such as your Google Drive folder or Downloads. Changes files you drop into it are then listed automatically.
-
----
-
-## Daily use
-
-**On the road (no signal needed)**
-
-- Search by company, person, phone number or postcode.
-- Open a company to see everything:
-  - actions, notes, meetings and people
-  - equipment, film specs, quotes, orders and call-offs
-- Tap **Call / Text / Email / Map** to contact them or get directions.
-- Add things with **Note · Action · Visit · Contact**, tick actions **Done**, or add a **new company** with **+**.
-- New items show a yellow **not synced** tag until they're in the CRM.
-
-**Back at the office: the round trip**
-
-1. **Phone → CRM**
-   - On the phone, tap **Sync → Export changes**.
-   - Send the file however is easiest: email it to yourself, AirDrop, Google Drive, or Save to Files.
-   - In the CRM, go to **📱 Phone sync → Choose changes file**.
-   - Review the list (untick anything you don't want), then click **Import ticked items**.
-2. **CRM → Phone**
-   - The CRM then offers to **export a fresh snapshot**.
-   - Get that file onto the phone, then tap **Sync → Load snapshot from CRM**.
-   - The phone's "waiting to sync" list clears itself.
-
-You don't have to do both every day. Sync whenever it suits you.
-
-**Safety nets**
-
-- **Importing the same changes file twice is harmless.** Anything already imported is skipped.
-- **Loading a snapshot never loses unsynced phone items.** Only items the CRM has confirmed are cleared.
-- **Nothing on the phone edits or deletes CRM records.** It's add-only, as agreed: notes, actions, ticks, meetings, contacts and companies.
-  - A new contact with an existing name only *adds* new numbers or emails.
-  - A new company whose name matches an existing one gets merged into it, so you don't end up with a duplicate.
-- **Booked meetings.** "Log as done" on a booked meeting ticks that meeting off in the CRM rather than creating a second one.
-- **Mistakes.** Delete an unsynced item from the **Sync** screen with the ✕ button.
-
-## Updating the app later
-
-1. Upload the changed files to the GitHub repo.
-2. In `sw.js`, bump `kempner-mobile-v1` to `-v2`.
-3. Open the app twice. The first open fetches the update, and the second uses it.
-
-## Quotes, orders and signed sheets (added)
-
-- **💷 Quote** and **🛒 Order** on a company page work like the CRM's editors: pick products from your catalogue (or type a new one), set qty and price, and the VAT and shipping totals update as you go. They go into the CRM's Commercial tab when you sync.
-- **✍️ Sign-off** makes a Kempner-letterhead PDF covering the items, price and payment wording, with the customer's finger signature, name and the date.
-  - Afterwards, tap **Email / share the PDF** to send them a copy.
-  - When you sync, the PDF is attached to the company in the CRM and a note is added.
-  - It can also log the order and add a "raise invoice" action for today.
+## Safety nets
+- A banner warns when items have been on the phone too long without being sent, and when the CRM copy is a week old.
+- Importing the same file twice is harmless, because already-imported items are skipped.
+- The phone never edits or deletes CRM records. It only adds.
