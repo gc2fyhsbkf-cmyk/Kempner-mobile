@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ffffff">
+<meta name="robots" content="noindex">
+<title>Reorder film · Kempner</title>
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f2f3f7;--card:#fff;--line:#e2e5ec;--txt:#15181f;--sub:#5b6474;--red:#e8192c;--blue:#2563eb;--green:#16a34a;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+header{background:#fff;border-bottom:1px solid var(--line);text-align:center;padding:18px 12px 12px}
+.k{font:700 34px/1 "Times New Roman",Times,serif;color:var(--red);letter-spacing:1px}
+.ks{font-size:12px;color:var(--sub);margin-top:4px}
+main{max-width:520px;margin:0 auto;padding:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:10px 0}
+h1{font-size:20px;margin:4px 0 2px}
+label.f{display:block;font-size:13px;font-weight:650;color:var(--sub);margin:12px 0 4px}
+input.f,textarea.f{width:100%;font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--txt)}
+textarea.f{min-height:70px}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1.5px solid var(--line);border-radius:12px;margin:6px 0;cursor:pointer}
+.opt input{margin-top:3px;transform:scale(1.25)}
+.opt.on{border-color:var(--blue);background:#f2f6ff}
+.qty{display:flex;align-items:center;gap:8px}.qty button{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:#f0f2f6;font-size:22px}
+.qty input{text-align:center;font-size:20px;font-weight:700;max-width:110px}
+.btn{display:block;width:100%;text-align:center;padding:14px;border-radius:12px;border:0;background:var(--red);color:#fff;font-family:inherit;font-weight:650;font-size:17px;line-height:1.2;margin-top:14px;text-decoration:none}
+.btn.sec{background:#f0f2f6;color:var(--txt)}
+.small{font-size:13px;color:var(--sub)}
+.err{color:var(--red);font-size:14px;margin-top:8px}
+.hidden{display:none}
+.done{text-align:center}.done .big{font-size:52px}
+</style>
+</head>
+<body>
+<header><div class="k">KEMPNER</div><div class="ks">S. Kempner Limited · display shrink materials &amp; machinery</div></header>
+<main id="app"><div class="card small">Loading…</div></main>
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const P = new URLSearchParams(location.hash.slice(1));
+const code = (P.get("c") || "").trim(), company = (P.get("n") || "").trim();
+const DEFAULT_PHONE = "020 8952 5262";
+const telHref = n => "tel:" + String(n).replace(/[^\d+]/g, "");
+
+function callOnly(msg, phone) {
+  $("#app").innerHTML = `<div class="card"><h1>Reorder film</h1><p>${msg}</p><a class="btn" href="${telHref(phone || DEFAULT_PHONE)}">📞 Call ${esc(phone || DEFAULT_PHONE)}</a></div>`;
+}
+async function start() {
+  let data = null;
+  try { const r = await fetch("reorder.json?t=" + Date.now(), {cache: "no-store"}); if (r.ok) data = await r.json(); } catch (e) {}
+  const link = data && data.links && data.links[code];
+  const phone = (data && data.phone) || DEFAULT_PHONE;
+  if (!code) return callOnly("This link is incomplete — please scan the sticker again, or give us a ring.", phone);
+  if (!data) return callOnly("We couldn't load the order page just now (no signal?). Try again in a moment, or give us a ring.", phone);
+  if (!link) return callOnly("We don't recognise this sticker. Please give us a ring and we'll sort your order.", phone);
+  if (link.active === false) return callOnly("This sticker has been switched off. Please give us a ring to reorder.", phone);
+  if (!data.orders_email) return callOnly("Online reordering isn't set up yet — please give us a ring.", phone);
+  render(data, link, phone);
+}
+function render(data, link, phone) {
+  const films = (link.films || []).filter(Boolean);
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem("kempner_reorder_" + code) || "{}"); } catch (e) {}
+  $("#app").innerHTML = `
+    <div class="card"><div class="small">Reorder for</div><h1>${esc(company || "your account")}</h1>
+      <div class="small">Fill this in and tap <b>Send order</b> — it opens an email to ${esc(data.rep || "Kempner")} with everything filled in.</div></div>
+    <div class="card"><label class="f" style="margin-top:0">Which film?</label>
+      ${films.map((f, i) => `<label class="opt ${i === 0 ? "on" : ""}"><input type="radio" name="film" value="${esc(f)}" ${i === 0 ? "checked" : ""}><span>${esc(f)}</span></label>`).join("")}
+      <label class="opt ${films.length ? "" : "on"}"><input type="radio" name="film" value="__other" ${films.length ? "" : "checked"}><span>${films.length ? "Something different" : "Tell us what you need"}</span></label>
+      <input class="f ${films.length ? "hidden" : ""}" id="other" placeholder="e.g. 19 micron, 450mm centrefold">
+      <label class="f">How many rolls?</label>
+      <div class="qty"><button type="button" data-q="-1">−</button><input class="f" id="qty" type="number" inputmode="numeric" min="1" value="${esc(link.qty || 1)}"><button type="button" data-q="1">＋</button></div>
+      <label class="f">Your PO number <span style="font-weight:400">(if you use them)</span></label><input class="f" id="po" autocomplete="off">
+      <label class="f">Your name</label><input class="f" id="who" autocomplete="name" value="${esc(saved.who || "")}">
+      <label class="f">Phone or email for any questions <span style="font-weight:400">(optional)</span></label><input class="f" id="contact" value="${esc(saved.contact || "")}">
+      <label class="f">Anything else? <span style="font-weight:400">(delivery, urgency…)</span></label><textarea class="f" id="notes"></textarea>
+      <div class="err" id="err"></div>
+      <button class="btn" id="send">✉️ Send order</button>
+      <button class="btn sec" id="copy">⧉ Copy the order instead</button>
+      <a class="btn sec" href="${telHref(phone)}">📞 Or call ${esc(phone)}</a>
+    </div>
+    <p class="small" style="text-align:center">Ref ${esc(code)} · S. Kempner Limited, 498-500 Honeypot Lane, Stanmore, HA7 1JZ</p>`;
+  const app = $("#app");
+  app.querySelectorAll("input[name=film]").forEach(r => r.onchange = () => {
+    app.querySelectorAll(".opt").forEach(o => o.classList.toggle("on", o.querySelector("input").checked));
+    $("#other").classList.toggle("hidden", r.value !== "__other" || !r.checked); if (r.value === "__other") $("#other").focus(); });
+  app.querySelectorAll("[data-q]").forEach(b => b.onclick = () => { const q = $("#qty"); q.value = Math.max(1, (parseInt(q.value) || 0) + +b.dataset.q); });
+  const order = () => {
+    const pick = app.querySelector("input[name=film]:checked"), film = pick && pick.value !== "__other" ? pick.value : $("#other").value.trim();
+    const qty = parseInt($("#qty").value) || 0, who = $("#who").value.trim();
+    if (!film) return {err: "Please say which film you need."};
+    if (qty < 1) return {err: "Please enter how many rolls."};
+    if (!who) return {err: "Please add your name so we know who ordered."};
+    try { localStorage.setItem("kempner_reorder_" + code, JSON.stringify({who, contact: $("#contact").value.trim()})); } catch (e) {}
+    const po = $("#po").value.trim();
+    const subject = `Film reorder – ${company || code}${po ? ` – PO ${po}` : ""}`;
+    const body = [`Film reorder from ${company || "(sticker " + code + ")"}`, "", `Film: ${film}`, `Quantity: ${qty} roll${qty === 1 ? "" : "s"}`,
+      `PO number: ${po || "none"}`, `Ordered by: ${who}`, $("#contact").value.trim() ? `Contact: ${$("#contact").value.trim()}` : "",
+      $("#notes").value.trim() ? `Notes: ${$("#notes").value.trim()}` : "", "", `Sticker ref: ${code}`].filter((x, i, a) => x !== "" || a[i - 1] !== "").join("\n");
+    return {subject, body};
+  };
+  $("#send").onclick = () => { const o = order(); $("#err").textContent = o.err || ""; if (o.err) return;
+    location.href = `mailto:${encodeURIComponent(data.orders_email).replace(/%40/g, "@")}?subject=${encodeURIComponent(o.subject)}&body=${encodeURIComponent(o.body)}`;
+    setTimeout(() => { $("#app").insertAdjacentHTML("afterbegin", `<div class="card done"><div class="big">✉️</div><b>Your email app should now be open with the order.</b><div class="small">Tap Send there to place it. Nothing opened? Use “Copy the order” and email it to ${esc(data.orders_email)}, or call us.</div></div>`); window.scrollTo(0, 0); }, 600); };
+  $("#copy").onclick = async () => { const o = order(); $("#err").textContent = o.err || ""; if (o.err) return;
+    const t = `To: ${data.orders_email}\nSubject: ${o.subject}\n\n${o.body}`;
+    try { await navigator.clipboard.writeText(t); $("#err").style.color = "var(--green)"; $("#err").textContent = `Copied — paste it into an email to ${data.orders_email}.`; }
+    catch (e) { $("#err").textContent = "Couldn't copy — please email " + data.orders_email; } };
+}
+addEventListener("hashchange", () => location.reload());
+start();
+</script>
+</body>
+</html>

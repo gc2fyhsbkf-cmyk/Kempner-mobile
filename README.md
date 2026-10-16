@@ -3,16 +3,31 @@
 An offline phone companion to the Kempner CRM. It's free: no App Store and no hosting bill. Your data stays on your phone and only moves when you send a file.
 
 ## Files (all at the top level on GitHub, no folders)
-`index.html`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
+`index.html`, `reorder.html`, `qrcode.js`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `road.js`, `tools.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
 
 To update: on GitHub, **Add file → Upload files**, drag in all the files and **Commit**. Then open the app twice with signal.
+
+`reorder.json` is not in this zip on purpose. The CRM makes it (see QR reorder stickers below), so uploading an app update never overwrites your customers' film lists.
 
 ## The tabs
 - **Today**: overdue and due actions (tick ✓ to complete), meetings for the next 7 days with directions, plus the CRM's film reorders to chase and accounts that need a nudge.
 - **Companies**: search by name, person, phone number, postcode or tag. Filter by Mine/Everyone and status, and sort by A–Z, most overdue, health score or recently updated.
+  - Tabs match the PC's: **Main**, **🛋 Lobby**, and any you add on the PC. A search looks across every tab.
+  - Lobby leads show no health score or warnings, just the town and why they're worth a try. Tap **⬆ Promote** on one to move it to your main list (the PC follows at the next sync).
+  - Making a new company? Tick "Just a lead" to put it in the Lobby.
+  - Plan my day suggests up to three Lobby leads within 3 miles of your stops.
 - **Company page**: Call / Text / Email / Directions, a big **＋ Add** button, and tabs for Overview · Notes · Actions · Meetings · People · Commercial · Equipment · Files.
-- **Nearby**: your customers sorted by distance from where you are. Needs signal the first time only, to look up postcodes.
+- **Road**, which has three parts:
+  - **Plan my day**: days you plan on the PC (**🗓 Plan visits**) arrive with the next snapshot, marked 🖥 from PC with any note you wrote. Changes you make on the phone are kept. Or add the customers you're seeing here, tap ✨ Best order, then open the whole route in Google Maps. It also suggests nearby customers who are due a reorder or a nudge.
+  - **Nearby**: your customers sorted by distance from where you are.
+  - **Mileage**: your miles are built automatically from visits, check-ins and signed sheets, starting and ending at your home postcode. Road miles need signal. You can correct any leg, see month totals × your pence per mile, export a CSV for your claim, and mark a month as claimed.
+- **📋 Brief** on every company: who you'll meet, the last conversations, open actions and quotes, recent orders, what they run, and trials. **🔊 Read aloud** reads it to you in the car, and **📍 Check in** logs you at the customer.
 - **Prices**: what each product last sold for, and to whom, plus the CRM's calculators (GP, VAT, price per m², thickness).
+- **🧮 Cost per pack** (Prices → Calculators, a company's ＋ Add, or tap a pack profile on Equipment):
+  - uses the CRM's L-sealer formula: film width = height + width + 30 mm overlap, rounded up to 50 mm; cut length = length + height + overlap + scrap
+  - shows packs per roll (less one for threading) and the film per pack
+  - the roll price is optional; offers the customer's last price for that film; compares turning the pack 90°
+  - can be saved as a note on the company
 - **Sync**: send changes to the CRM and load the latest snapshot.
 
 ## Adding things (all go into the CRM when you sync)
@@ -34,6 +49,21 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - collection
   - work completed.
 - **📅 Add to Calendar** on meetings and actions puts them in the iPhone Calendar with a reminder.
+
+## Your business card
+- **🪪 My card** (top right of Today, or Sync → Settings) shows a QR code. People scan it with their camera to save your details. **Send my contact card** shares it as a contact file by AirDrop or text. Set your details once and they stay on the phone.
+
+## QR reorder stickers
+- Set up on the PC: **📱 Phone sync → 🔖 QR reorder stickers**. Enter the app's web address and the orders email, add customers and their film(s), then:
+  1. **Save reorder.json** and upload it to GitHub next to `reorder.html`
+  2. **Print stickers**: an A4 page opens in your browser.
+- The customer scans the sticker and picks the film, number of rolls, PO number and their name. Their email app opens with the order, addressed to you.
+- After an intro roll, change their film on the PC and upload reorder.json again. The printed sticker keeps working. Untick "switched on" to stop a sticker taking orders.
+- The public reorder.json holds only random codes and film names, never customer names.
+- On the phone, a company's **＋ Add → 🔖 Reorder QR** shows the code for them to scan.
+
+## Colours
+- The app follows the PC's colours, so it's light unless you tick Dark mode in the CRM. Sync → Settings → **Colours** can force Light or Dark, or follow the iPhone.
 
 ## Safety nets
 - A banner warns when items have been on the phone too long without being sent, and when the CRM copy is a week old.

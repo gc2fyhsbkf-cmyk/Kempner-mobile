@@ -183,10 +183,11 @@ route(/^#\/newco$/, () => {
     <label class="f">Company name</label><input class="f" name="name" id="coName" required autocapitalize="words"><div id="dupe"></div>
     <label class="f">Contact name</label><input class="f" name="contact_name" autocapitalize="words">
     <div class="two"><div><label class="f">Phone</label><input class="f" type="tel" name="phone"></div><div><label class="f">Email</label><input class="f" type="email" name="email" autocapitalize="off"></div></div>
-    <label class="f">First note (optional)</label><textarea class="f" name="note" style="min-height:90px"></textarea>`, "Create company",
+    <label class="f">First note (optional)</label><textarea class="f" name="note" style="min-height:90px"></textarea>
+    <label class="check"><input type="checkbox" name="lobby" ${META.seg === LOBBY ? "checked" : ""}> Just a lead for now — put it in the 🛋 Lobby</label>`, "Create company",
     async fd => {
       if (!fd.name) throw new Error("name needed");
-      const ev = await addEvent("company_new", null, {name: fd.name, contact_name: fd.contact_name || "", phone: fd.phone || "", email: fd.email || ""});
+      const ev = await addEvent("company_new", null, {name: fd.name, contact_name: fd.contact_name || "", phone: fd.phone || "", email: fd.email || "", segment: fd.lobby ? LOBBY : ""});
       const key = evCoKey(ev);
       if (fd.note) await addEvent("note", key, {content: fd.note, customer: fd.contact_name || "", reference: "", tags: "", flag: "4NONE"});
       toast("Company added ✓"); location.replace(coHref(key)); return false;
@@ -478,3 +479,47 @@ function addToCalendar(key, kind, id) {
   const file = new File([lines.join("\r\n")], `${title.replace(/[\\/:*?"<>|]/g, "-").slice(0, 60)}.ics`, {type: "text/calendar"});
   shareFile(file);
 }
+
+// ---------- MY BUSINESS CARD (QR → contact card on their phone) ----------
+const CARD_DEFAULTS = {name: "", title: "", mobile: "", office: "020 8952 5262", email: "", website: "www.kempner.co.uk",
+  company: "S. Kempner Limited", street: "498-500 Honeypot Lane", town: "Stanmore", county: "Middlesex", postcode: "HA7 1JZ"};
+function myCard() { return Object.assign({}, CARD_DEFAULTS, {name: META.user || (SNAP && SNAP.current_user) || ""}, META.card || {}); }
+function vcardText(c) {
+  const e = s => String(s || "").replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\n/g, "\\n");
+  const parts = c.name.trim().split(/\s+/), last = parts.length > 1 ? parts.pop() : "", first = parts.join(" ");
+  const web = c.website ? (/^https?:/i.test(c.website) ? c.website : "https://" + c.website) : "";
+  return ["BEGIN:VCARD", "VERSION:3.0", `N:${e(last)};${e(first)};;;`, `FN:${e(c.name)}`, c.company ? `ORG:${e(c.company)}` : "", c.title ? `TITLE:${e(c.title)}` : "",
+    c.mobile ? `TEL;TYPE=CELL:${c.mobile}` : "", c.office ? `TEL;TYPE=WORK:${c.office}` : "", c.email ? `EMAIL;TYPE=WORK:${c.email}` : "", web ? `URL:${web}` : "",
+    (c.street || c.town || c.postcode) ? `ADR;TYPE=WORK:;;${e(c.street)};${e(c.town)};${e(c.county)};${e(c.postcode)};United Kingdom` : "", "END:VCARD"].filter(Boolean).join("\r\n");
+}
+function qrSvg(text) {
+  qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
+  const q = qrcode(0, "M"); q.addData(text); q.make();
+  return q.createSvgTag({cellSize: 6, margin: 2, scalable: true});
+}
+route(/^#\/card$/, () => {
+  const c = myCard();
+  if (!c.name || !(c.mobile || c.email)) return go("#/card/edit");
+  setHeader("My business card", "#/", "today");
+  $("#view").innerHTML = `<div class="bizcard">
+      <div style="font:700 30px/1 'Times New Roman',serif;color:#e8192c;letter-spacing:.5px">KEMPNER</div>
+      <div class="bc-name">${esc(c.name)}</div>${c.title ? `<div class="bc-sub">${esc(c.title)}</div>` : ""}
+      <div class="bc-qr">${qrSvg(vcardText(c))}</div>
+      <div class="bc-sub">Scan with the camera to save my details</div>
+      <div class="bc-lines">${c.mobile ? `📱 ${esc(c.mobile)}<br>` : ""}${c.office ? `☎️ ${esc(c.office)}<br>` : ""}${c.email ? `✉️ ${esc(c.email)}<br>` : ""}${c.website ? `🌐 ${esc(c.website)}` : ""}</div></div>
+    <p class="small" style="text-align:center">Tip: turn your screen brightness up so it scans first time.</p>
+    <button class="btn block red" id="shareCard">📤 Send my contact card</button>
+    <a class="btn block sec" href="#/card/edit">✏️ Edit my details</a>`;
+  $("#shareCard").onclick = () => shareFile(new File([vcardText(c)], `${c.name.replace(/[\\/:*?"<>|]/g, "-")} - Kempner.vcf`, {type: "text/vcard"}));
+});
+route(/^#\/card\/edit$/, () => {
+  const c = myCard();
+  const f = (k, l, type = "text", ph = "") => `<label class="f">${l}</label><input class="f" name="${k}" type="${type}" value="${esc(c[k])}" placeholder="${esc(ph)}" ${type === "email" ? 'autocapitalize="off"' : ""}>`;
+  form("My card details", "#/card", `<p class="small">These go on the QR code people scan to save you as a contact. They stay on this phone.</p>
+    ${f("name", "Full name")}${f("title", "Job title", "text", "e.g. Area Sales Manager")}
+    <div class="two"><div>${f("mobile", "Mobile", "tel")}</div><div>${f("office", "Office phone", "tel")}</div></div>
+    ${f("email", "Work email", "email")}${f("website", "Website")}${f("company", "Company")}
+    <details class="more"><summary>Address</summary>${f("street", "Street")}<div class="two"><div>${f("town", "Town")}</div><div>${f("postcode", "Postcode")}</div></div>${f("county", "County")}</details>`,
+    "Save card", async fd => { if (!fd.name) throw new Error("add your name"); if (!fd.mobile && !fd.email) throw new Error("add a mobile or an email");
+      META.card = Object.assign({}, CARD_DEFAULTS, fd); await saveMeta(); location.replace("#/card"); return false; }, "today");
+});

@@ -34,6 +34,7 @@ function listSub(c) {
   return [parts.join("  ·  "), alert];
 }
 function coRow(c, extraRight = "") {
+  if (isQuiet(c)) return quietRow(c, extraRight);
   const pc = pend(c._key).length, v = view(c._key) || {}, [sub, alert] = listSub(c), st = companyStatus(c);
   const tags = rows("company_tags", c._key).slice(0, 3);
   return `<a class="row" href="${coHref(c._key)}"><span class="score ${scoreCls(v.score)}">${v.score == null ? "" : esc(v.score)}</span>
@@ -41,6 +42,13 @@ function coRow(c, extraRight = "") {
     ${sub ? `<div class="s ${alert ? "alert" : ""}">${sub}</div>` : ""}
     ${tags.length ? `<div style="margin-top:2px">${tags.map(t => `<span class="chip" style="font-size:10.5px;padding:1px 7px">${esc(t.tag)}</span>`).join("")}</div>` : ""}</div>
     ${extraRight}<span class="dot" style="background:${esc(STATUS_COL[st] || v.dot || "#dde1ea")}"></span></a>`;
+}
+function quietRow(c, extraRight = "") { // Lobby leads: no score, no warnings — what it is and why it's worth a try
+  const li = leadInfo(c), pc = pend(c._key).length, seg = segOf(c);
+  const sub = [coQuery ? seg : "", li.town, li.why].filter(Boolean).join("  ·  ");
+  return `<a class="row" href="${coHref(c._key)}"><span class="score na" style="border-width:1px;font-size:15px">${seg === LOBBY ? "🛋" : "•"}</span>
+    <div class="m"><div class="t">${esc(c.name)}${c._pending ? '<span class="badge">new</span>' : pc ? `<span class="badge">${pc}</span>` : ""}</div>
+    <div class="s">${esc(sub || li.sector || "prospect")}</div></div>${extraRight}</a>`;
 }
 function actionRow(c, a, showCo = true) {
   return `<div class="row ${a._pending ? "pend" : ""}">
@@ -59,6 +67,7 @@ function scope() {
 // ---------- TODAY ----------
 route(/^#\/$/, () => {
   setHeader("", null, "today");
+  $("#topRight").innerHTML = `<a class="tbtn" href="#/card" aria-label="My business card">🪪 My card</a>`;
   const v = $("#view");
   if (!SNAP && !PENDING.length) { v.innerHTML = welcomeCard(); showFab(() => go("#/newco")); return; }
   const cos = scope(), keys = cos.map(c => c._key), today = localDate();
@@ -77,11 +86,13 @@ route(/^#\/$/, () => {
   h.push(`<div style="margin:6px 4px 10px"><div style="font-size:24px;font-weight:800">${hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}${who ? ", " + esc(who) : ""}</div>
     <div class="small">${DOW[new Date().getDay()]} ${new Date().getDate()} ${MON[new Date().getMonth()]} · ${cos.length} ${META.filter === "all" ? "companies" : "of your companies"}</div></div>`);
   h.push(healthBanners());
+  h.push(`<div id="nearStop"></div>`);
   h.push(`<div class="tiles">
     <a class="tile" style="background:var(--red)" href="#today-over"><b>${over.length}</b><span>Overdue</span></a>
     <a class="tile" style="background:var(--amber);color:#111" href="#today-due"><b>${due.length}</b><span>Due today</span></a>
     <a class="tile" style="background:var(--blue)" href="#today-mt"><b>${mt.length}</b><span>Meetings 7d</span></a>
     <a class="tile" style="background:var(--purple)" href="#/sync"><b>${PENDING.length}</b><span>To send</span></a></div>`);
+  h.push(todayPlanCard());
   if (mt.length) h.push(`<h2 id="today-mt">🤝 Meetings — next 7 days</h2><div class="list">${mt.map(([c, m]) => {
     const addr = rows("addresses", c._key)[0];
     return `<div class="row ${m._pending ? "pend" : ""}"><div style="text-align:center;min-width:44px"><div style="font-size:11px;font-weight:800;color:var(--red)">${esc(niceDate(m.date).split(" ")[0].toUpperCase())}</div><div style="font-weight:800">${esc(m.time || "—")}</div></div>
@@ -106,6 +117,7 @@ route(/^#\/$/, () => {
   v.innerHTML = h.join("");
   v.querySelectorAll('a[href^="#today-"]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.getAttribute("href").slice(1)); if (t) t.scrollIntoView({behavior: "smooth", block: "start"}); });
   showFab(() => quickAddSheet(null));
+  nearStopCheck();
 });
 
 // ---------- COMPANIES ----------
@@ -115,7 +127,9 @@ route(/^#\/companies$/, () => {
   const v = $("#view");
   if (!SNAP && !PENDING.length) { v.innerHTML = welcomeCard(); return; }
   const sts = (SNAP && SNAP.status_options) || ["URGENT","WARM","COLD","OK","DEAD","CONTACT","NONE"];
+  const segN = s => scope().filter(c => segOf(c) === s).length, curSeg = META.seg || "";
   v.innerHTML = `<input class="search" id="q" type="search" placeholder="Company, person, phone, postcode, tag…" value="${esc(coQuery)}" autocomplete="off" autocorrect="off">
+    <div class="seg" style="margin:8px 0 0"><button data-seg="" class="${curSeg === "" ? "on" : ""}">Main ${segN("")}</button>${segments().map(s => `<button data-seg="${esc(s.name)}" class="${curSeg === s.name ? "on" : ""}">${esc(segLabel(s))} ${segN(s.name)}</button>`).join("")}</div>
     <div class="scrollx">
       <button class="fchip ${META.filter !== "all" ? "on" : ""}" data-f="mine">Mine</button>
       <button class="fchip ${META.filter === "all" ? "on" : ""}" data-f="all">Everyone</button>
@@ -124,6 +138,7 @@ route(/^#\/companies$/, () => {
     </div><div id="coBody"></div>`;
   const q = $("#q"); q.oninput = () => { coQuery = q.value; coLimit = 80; coBody(); };
   v.querySelectorAll("[data-f]").forEach(b => b.onclick = async () => { META.filter = b.dataset.f; await saveMeta(); render(); });
+  v.querySelectorAll("[data-seg]").forEach(b => b.onclick = async () => { META.seg = b.dataset.seg; await saveMeta(); render(); });
   $("#stSel").onchange = e => { coStatus = e.target.value; coBody(); };
   $("#sortSel").onchange = async e => { META.sort = e.target.value; await saveMeta(); coBody(); };
   coBody();
@@ -133,6 +148,7 @@ function coBody() {
   let list = scope();
   if (coStatus) list = list.filter(c => companyStatus(c) === coStatus);
   const q = coQuery.trim().toLowerCase();
+  if (!q) list = list.filter(c => segOf(c) === (META.seg || ""));  // a search looks across every tab
   if (q) { const qd = digits(q), terms = q.split(/\s+/);
     list = list.filter(c => { const h = haystack(c); return terms.every(t => h.includes(t)) || (qd.length >= 4 && h.includes(qd)); }); }
   const overdue = c => openActions(c._key).filter(a => a.date && dayDiff(a.date) < 0).length;
@@ -143,7 +159,8 @@ function coBody() {
     recent: (a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")),
   };
   list.sort(q ? ((a, b) => (b.name.toLowerCase().startsWith(q)) - (a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)) : (sorters[META.sort] || sorters.az));
-  $("#coBody").innerHTML = `<h2>${list.length} ${list.length === 1 ? "company" : "companies"}</h2>
+  const lobbyHint = !q && META.seg === LOBBY ? `<div class="small" style="margin:6px 4px">Leads to try. No reminders or health scores here; open one and tap <b>⬆ Promote</b> once they're a real customer.</div>` : "";
+  $("#coBody").innerHTML = `${lobbyHint}<h2>${list.length} ${list.length === 1 ? "company" : "companies"}</h2>
     <div class="list">${list.slice(0, coLimit).map(c => coRow(c)).join("") || '<div class="empty">Nothing matches.</div>'}</div>
     ${list.length > coLimit ? `<button class="btn sec block" id="more">Show ${Math.min(200, list.length - coLimit)} more</button>` : ""}`;
   const m = $("#more"); if (m) m.onclick = () => { coLimit += 200; coBody(); };
@@ -167,7 +184,8 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
   h.push(`<div class="cohead ${c._pending ? "pend" : ""}">
     <div style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:12px;height:12px;background:${esc(STATUS_COL[st] || "#dde1ea")}"></span>
       <div class="nm">${esc(c.name)}${c._pending ? '<span class="badge">new – not synced</span>' : ""}</div>
-      ${v.score != null ? `<span class="score ${scoreCls(v.score)}">${esc(v.score)}</span>` : ""}</div>
+      ${v.score != null && !isQuiet(c) ? `<span class="score ${scoreCls(v.score)}">${esc(v.score)}</span>` : ""}</div>
+    ${segOf(c) ? (li => `<div class="banner soft" style="margin:8px 0 0;display:flex;align-items:center;gap:8px"><span>${segOf(c) === LOBBY ? "🛋" : "🗂"} In the <b>${esc(segOf(c))}</b>${li.why ? ` · ${esc(li.why)}` : ""}${pend(key, "segment_set").length ? " · change not synced" : ""}</span><button class="btn sm green" id="promoteBtn" style="margin-left:auto;flex:none">⬆ Promote</button></div>`)(leadInfo(c)) : ""}
     <div style="margin-top:6px">${st !== "NONE" ? `<span class="chip" style="background:${esc(STATUS_COL[st])};color:#fff">${esc(st)}</span>` : ""}<span class="chip c-blue">📈 ${esc(c.pipeline_stage || "Prospect")}</span>${v.owners ? `<span class="chip">🧑‍💼 ${esc(v.owners)}</span>` : ""}${v.reorder ? `<span class="chip c-${esc(v.reorder.tone === "sub" ? "" : v.reorder.tone)}">${esc(v.reorder.text)}</span>` : ""}${c.region ? `<span class="chip">📍 ${esc(c.region)}</span>` : ""}</div>
     ${v.last_contact ? `<div class="small" style="margin-top:6px">Last contact: <b>${esc(v.last_contact)}</b></div>` : ""}
     ${mc ? `<div class="small" style="margin-top:2px">👤 ${esc(mc.name)}${mc.role ? " · " + esc(mc.role) : ""}${mc.number ? ` · ${telLink(mc.number, key)}` : ""}</div>` : ""}
@@ -177,6 +195,7 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
       <a class="${mc && dialable(mc.number) ? "" : "off"}" href="sms:${esc(digits(mc && mc.number))}"><span class="i">💬</span>Text</a>
       <a class="${mc && mc.email ? "" : "off"}" href="mailto:${esc(mc && mc.email || "")}"><span class="i">✉️</span>Email</a>
       <a class="${addr ? "" : "off"}" href="https://maps.apple.com/?daddr=${mapsQ}"><span class="i">🧭</span>Directions</a>
+      <a href="#/brief/${encodeURIComponent(key)}"><span class="i">📋</span>Brief</a>
       <button id="addBtn" style="background:var(--red);color:#fff"><span class="i">＋</span>Add</button></div></div>`);
   const TABS = [["overview","Overview",""],["notes","Notes",nts.length],["actions","Actions",open.length],["meetings","Meetings",mts.length],["people","People",ppl.length],
     ["commercial","Commercial",qg.length + og.length],["equipment","Equipment",eq.length + specs.length],["files","Files",files.length]];
@@ -198,6 +217,9 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
     const ics = e.target.closest("[data-ics]"); if (ics) { const [kind, id] = ics.dataset.ics.split("|"); addToCalendar(key, kind, id); return; }
   };
   $("#addBtn").onclick = () => quickAddSheet(key);
+  const pb = $("#promoteBtn"); if (pb) pb.onclick = async () => {
+    if (!confirm(`Promote ${c.name} to your main list?`)) return;
+    await addEvent("segment_set", key, {segment: ""}); toast("Promoted — the PC updates at the next sync"); render(); };
   renderTab(tab);
 });
 function notesHtml(list, n) {
@@ -280,8 +302,8 @@ const TAB_RENDER = {
       ${specs.length ? `<h2>🎞 Known film specs</h2><div class="list">${specs.map(s => `<div class="item"><b>${num(s.width_mm)}mm × ${num(s.thickness_micron)}µm</b>${s.roll_length_m ? ` · ${num(s.roll_length_m)}m` : ""}
         ${s.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip c-red">competitor</span>'}${s.is_suggested ? '<span class="chip c-blue">suggested</span>' : ""}
         ${s.supplier ? `<div class="small">Supplier: ${esc(s.supplier)}</div>` : ""}${s.roll_price ? `<div class="small">${gbp(s.roll_price)}/roll</div>` : ""}${s.notes ? `<div class="small">${esc(s.notes)}</div>` : ""}</div>`).join("")}</div>` : ""}
-      ${packs.length ? `<h2>📦 Pack profiles</h2><div class="list">${packs.map(p => `<div class="item"><b>${esc(p.name)}</b> ${p.category ? `<span class="chip">${esc(p.category)}</span>` : ""}${p.frequency ? `<span class="chip">${esc(p.frequency)}</span>` : ""}
-        <div class="small">${[p.length_mm, p.width_mm, p.height_mm].some(x => x) ? `${num(p.length_mm)} × ${num(p.width_mm)} × ${num(p.height_mm)} mm` : ""}${p.thickness_micron ? ` · ${num(p.thickness_micron)}µm` : ""}</div>${p.notes ? `<div class="small">${esc(p.notes)}</div>` : ""}</div>`).join("")}</div>` : ""}
+      <h2>📦 Pack profiles<a class="r small" href="#/pack/${encodeURIComponent(key)}">🧮 Cost per pack ›</a></h2>${packs.length ? `<div class="list">${packs.map(p => `<a class="item" style="display:block;color:inherit" href="#/pack/${encodeURIComponent(key)}/${p.id}"><span style="float:right" class="chip c-blue">🧮 cost</span><b>${esc(p.name)}</b> ${p.category ? `<span class="chip">${esc(p.category)}</span>` : ""}${p.frequency ? `<span class="chip">${esc(p.frequency)}</span>` : ""}
+        <div class="small">${[p.length_mm, p.width_mm, p.height_mm].some(x => x) ? `${num(p.length_mm)} × ${num(p.width_mm)} × ${num(p.height_mm)} mm` : ""}${p.thickness_micron ? ` · ${num(p.thickness_micron)}µm` : ""}</div>${p.notes ? `<div class="small">${esc(p.notes)}</div>` : ""}</a>`).join("")}</div>` : '<div class="empty" style="background:var(--card);border-radius:14px">No pack profiles in the CRM — <a href="#/pack/' + encodeURIComponent(key) + '">work one out</a>.</div>'}
       ${trials.length ? `<h2>🧪 Film trials</h2><div class="list">${trials.map(t => `<div class="item"><div class="meta">${niceDate(t.trial_date)}</div><b>${esc(t.spec_name)}</b> ${["worked","interested","ordered"].filter(k => t[k]).map(k => `<span class="chip c-green">${k}</span>`).join("")}${t.notes ? `<div class="small">${esc(t.notes)}</div>` : ""}</div>`).join("")}</div>` : ""}`;
   },
   files: ({key, files}) => `<div style="display:flex;gap:6px;margin:6px 0"><button class="btn sm" onclick="takePhoto('${esc(key)}')">📷 Take photo</button><a class="btn sm" style="background:var(--purple)" href="#/sign/${encodeURIComponent(key)}">✍️ Sign-off sheet</a></div>
@@ -315,10 +337,11 @@ function quickAddSheet(key) {
   const k = encodeURIComponent(key), c = IDX.co.get(key);
   const items = [["📝","Note","#4f46e5",`#/add/note/${k}`],["📞","Log call","#0891b2",`#/call/${k}`],["✅","Action","#16a34a",`#/add/action/${k}`],["🤝","Visit","#2563eb",`#/add/meeting/${k}`],
     ["📷","Photo","#db2777",`photo`],["💷","Quote","#f59e0b",`#/add/quote/${k}`],["🛒","Order","#0d9488",`#/add/order/${k}`],["✍️","Sign-off","#7c3aed",`#/sign/${k}`],
-    ["👤","Contact","#64748b",`#/add/contact/${k}`]];
+    ["👤","Contact","#64748b",`#/add/contact/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
   openSheet(`<b style="font-size:17px">${esc(c ? c.name : "")}</b><div class="sgrid" style="margin-top:14px">${items.map(([i, l, col, href]) =>
-    href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div>`, el => {
+    href === "reorder" ? `<button data-ro="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div>`, el => {
     el.querySelector("[data-ph]").onclick = () => { closeSheet(); takePhoto(key); };
+    el.querySelector("[data-ro]").onclick = () => reorderSheet(key);
   });
 }
 
@@ -349,17 +372,17 @@ async function geocodeMissing(pcs, onProgress) {
 }
 let HERE = null;
 route(/^#\/nearby$/, () => {
-  setHeader("Nearby", null, "nearby");
+  setHeader("On the road", null, "road");
   const v = $("#view");
   if (!SNAP) { v.innerHTML = welcomeCard(); return; }
   const cos = scope(), withPc = cos.map(c => [c, companyPostcode(c._key)]).filter(x => x[1]);
   const missing = withPc.filter(([, p]) => !GEO[p]).length;
-  v.innerHTML = `<div class="card"><b>Customers near you</b><p class="small" style="margin:4px 0 10px">Uses your phone's location and each customer's postcode. ${withPc.length} of ${cos.length} have a postcode on file.${missing ? ` ${missing} postcode${missing === 1 ? "" : "s"} still need looking up (needs signal, done once and remembered — only the postcodes are sent to postcodes.io).` : ""}</p>
+  v.innerHTML = `${roadSeg("nearby")}<div class="card"><b>Customers near you</b><p class="small" style="margin:4px 0 10px">Uses your phone's location and each customer's postcode. ${withPc.length} of ${cos.length} have a postcode on file.${missing ? ` ${missing} postcode${missing === 1 ? "" : "s"} still need looking up (needs signal, done once and remembered — only the postcodes are sent to postcodes.io).` : ""}</p>
     <button class="btn block red" id="locBtn">📍 ${HERE ? "Refresh my location" : "Find customers near me"}</button><div class="small" id="locMsg"></div></div><div id="nearList"></div>`;
   const draw = () => {
     if (!HERE) return;
     const list = withPc.filter(([, p]) => GEO[p] && !GEO[p].none).map(([c, p]) => [c, miles(HERE, GEO[p]), p]).sort((a, b) => a[1] - b[1]).slice(0, 60);
-    $("#nearList").innerHTML = `<h2>Closest first</h2><div class="list">${list.map(([c, d, p]) => coRow(c, `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} mi</span>`).replace('<div class="m">', `<div class="m" data-pc="${esc(p)}">`)).join("") || '<div class="empty">No customers with known locations yet.</div>'}</div>`;
+    $("#nearList").innerHTML = `<h2>Closest first</h2><div class="list">${list.map(([c, d, p]) => coRow(c, `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} mi</span><button class="btn sm sec" data-plan="${esc(c._key)}" style="padding:4px 8px">＋🗓</button>`).replace('<div class="m">', `<div class="m" data-pc="${esc(p)}">`)).join("") || '<div class="empty">No customers with known locations yet.</div>'}</div>`;
   };
   $("#locBtn").onclick = async () => {
     const msg = $("#locMsg");
@@ -415,6 +438,7 @@ route(/^#\/prices$/, () => {
 function calculators(host) {
   const f = (id, label, val = "", extra = "") => `<div><label class="f">${label}</label><input class="f" id="${id}" type="number" inputmode="decimal" step="any" value="${val}" ${extra}></div>`;
   host.innerHTML = `
+  <a class="card row" href="#/pack" style="display:flex;margin-top:8px"><span style="font-size:26px">🧮</span><div class="m"><b>Cost per pack</b><div class="small">Pack size → film width, metres per pack, packs per roll and £ per pack (roll price optional)</div></div><span class="chev">›</span></a>
   <div class="card"><b>📈 GP / margin checker</b><div class="two">${f("gpCost", "Cost £")}${f("gpSale", "Sale price £")}</div><div class="two">${f("gpTarget", "…or target GP %")}<div></div></div><div class="totals" id="gpOut"></div></div>
   <div class="card"><b>🧾 VAT</b><div class="two">${f("vatAmt", "Amount £")}${f("vatRate", "VAT %", defaultVatPct())}</div><div class="totals" id="vatOut"></div></div>
   <div class="card"><b>📏 Price per m² / spec converter</b><p class="small" style="margin:4px 0">Known roll → what a different size would cost at the same £/m².</p>
@@ -465,12 +489,15 @@ route(/^#\/sync$/, () => {
       <label class="f">Who am I? (for "Mine")</label><select class="f" id="userSel"><option value="">${SNAP && SNAP.current_user ? esc(SNAP.current_user) + " (from CRM)" : "Not set – show everyone"}</option>${users.map(u => `<option ${META.user === u.name ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>
       <label class="f">Device name (shown on the PC when importing)</label><input class="f" id="devName" value="${esc(META.device || "")}" placeholder="e.g. Dan's iPhone">
       <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 4 · data stays on this phone.</p></div>`;
+      <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
+      <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 6 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
   $("#devName").onchange = async e => { META.device = e.target.value.trim(); await saveMeta(); toast("Saved"); };
   $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
+  $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
   $("#view").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const ev = PENDING.find(x => x.id === b.dataset.del);
     if (!ev || !confirm(`Delete this unsent item?\n\n${describe(ev).slice(0, 200)}`)) return;

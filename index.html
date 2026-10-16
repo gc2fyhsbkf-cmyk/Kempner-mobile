@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14171d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" id="themeColor">
+<script>/* apply saved theme before paint; default = light like the PC */
+(function(){try{var t=localStorage.getItem("km_theme_eff");if(t==="dark")document.documentElement.classList.add("dark");}catch(e){}})();</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -22,11 +23,12 @@
   --top:env(safe-area-inset-top,0px); --bot:env(safe-area-inset-bottom,0px);
   --tabh:58px;
 }
-@media (prefers-color-scheme:dark){:root{
+html.dark{
   --bg:#0e1015; --card:#181b22; --bd:#2a2f3a; --line:#222630; --txt:#eceef3; --sub:#a6aebd; --muted:#7c8494;
   --red-soft:#3a1519; --blue:#60a5fa; --blue-soft:#172540; --green-soft:#11301e; --amber-soft:#33270f; --chip:#232733;
   --pend:#2a2312; --pendbd:#7a5a1f; --shadow:none;
-}}
+}
+html.dark{color-scheme:dark}html{color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Arial,sans-serif;-webkit-text-size-adjust:100%}
 body{padding-bottom:calc(var(--tabh) + var(--bot) + 16px)}
@@ -68,7 +70,7 @@ h2 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500}
 .badge{display:inline-block;font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:8px;background:var(--amber);color:#111;margin-left:6px;vertical-align:1px;white-space:nowrap}
 .chip{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:12px;background:var(--chip);color:var(--sub);margin:2px 4px 2px 0;white-space:nowrap}
 .c-red{background:var(--red-soft);color:var(--red)}.c-amber{background:var(--amber-soft);color:#b45309}.c-green{background:var(--green-soft);color:var(--green)}.c-blue{background:var(--blue-soft);color:var(--blue)}
-@media (prefers-color-scheme:dark){.c-amber{color:var(--amber)}}
+html.dark .c-amber{color:var(--amber)}
 .t-red{color:var(--red)}.t-amber{color:#d97706}.t-green{color:var(--green)}.t-blue{color:var(--blue)}.t-muted{color:var(--muted)}.t-main{color:var(--txt)}.t-sub{color:var(--sub)}
 .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--bd)}
 .score{width:36px;height:36px;flex:none;border-radius:50%;border:3px solid var(--amber);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--sub)}
@@ -92,7 +94,7 @@ h2 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500}
 .banner .chev{color:inherit;opacity:.8;margin-left:auto}
 .banner.amber{background:var(--amber);color:#111}.banner.red{background:var(--red)}.banner.green{background:var(--green)}.banner.blue{background:var(--blue)}
 .banner.soft{background:var(--amber-soft);color:#7a4a00;border:1px solid var(--pendbd)}
-@media (prefers-color-scheme:dark){.banner.soft{color:var(--amber)}}
+html.dark .banner.soft{color:var(--amber)}
 
 /* search & filters */
 .search{width:100%;font-size:17px;padding:11px 14px 11px 38px;border-radius:12px;border:1px solid var(--line);background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238d95a5' stroke-width='2.4' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 12px center;color:var(--txt);box-shadow:var(--shadow)}
@@ -105,7 +107,7 @@ select.fchip{appearance:none;-webkit-appearance:none;padding-right:24px;backgrou
 /* company */
 .cohead{background:var(--card);border-bottom:1px solid var(--line);margin:-12px -14px 0;padding:14px 16px 10px}
 .cohead .nm{font-size:21px;font-weight:750;line-height:1.2;flex:1}
-.qa{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:12px}
+.qa{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:12px}
 .qa a,.qa button{display:flex;flex-direction:column;align-items:center;gap:2px;border:0;background:var(--chip);border-radius:12px;padding:8px 2px;font-size:11.5px;font-weight:650;color:var(--txt)}
 .qa .i{font-size:19px}
 .qa .off{opacity:.35;pointer-events:none}
@@ -166,7 +168,7 @@ textarea.f{min-height:120px;resize:vertical}
 .formbar .btn{flex:1}
 .prompts{background:var(--amber-soft);border:1px solid var(--pendbd);border-radius:12px;padding:6px 12px 12px;margin-top:12px}
 .prompts label.f{color:#7a4a00}
-@media (prefers-color-scheme:dark){.prompts label.f{color:var(--amber)}}
+html.dark .prompts label.f{color:var(--amber)}
 details.more summary{list-style:none;color:var(--blue);font-size:14px;font-weight:600;margin:12px 2px 0;cursor:pointer}
 details.more summary::-webkit-details-marker{display:none}
 .lineed{border:1px solid var(--bd);border-radius:12px;padding:8px;margin:6px 0;background:var(--card)}
@@ -195,6 +197,10 @@ details.more summary::-webkit-details-marker{display:none}
 .resbtn:active{background:var(--chip)}
 .picked .pk{display:flex;align-items:center;gap:8px;background:var(--green-soft);border-radius:10px;padding:9px 10px}
 .picked .pkn{flex:1;min-width:0}
+.bizcard{background:#fff;color:#15181f;border-radius:18px;padding:22px 18px;margin:8px 0 10px;text-align:center;box-shadow:0 4px 18px rgba(0,0,0,.12);border:1px solid #e2e5ec}
+.bc-name{font-size:22px;font-weight:800;margin-top:12px}.bc-sub{font-size:13px;color:#5b6474;margin-top:2px}
+.bc-qr{width:min(78vw,300px);margin:14px auto 6px;background:#fff}.bc-qr svg{width:100%;height:auto;display:block}
+.bc-lines{font-size:14px;line-height:1.6;margin-top:10px;color:#15181f}
 </style>
 </head>
 <body>
@@ -204,7 +210,7 @@ details.more summary::-webkit-details-marker{display:none}
 <nav id="tabs">
   <a href="#/" data-tab="today"><span class="i">📋</span>Today</a>
   <a href="#/companies" data-tab="companies"><span class="i">🏢</span>Companies</a>
-  <a href="#/nearby" data-tab="nearby"><span class="i">📍</span>Nearby</a>
+  <a href="#/plan" data-tab="road"><span class="i">🚗</span>Road</a>
   <a href="#/prices" data-tab="prices"><span class="i">💷</span>Prices</a>
   <a href="#/sync" data-tab="sync"><span class="i">🔄</span>Sync<span class="bdg hidden" id="syncBdg"></span></a>
 </nav>
@@ -212,10 +218,13 @@ details.more summary::-webkit-details-marker{display:none}
 <input type="file" id="fileIn" class="hidden">
 <input type="file" id="photoIn" class="hidden" accept="image/*" capture="environment">
 <div id="toast"></div>
+<script src="qrcode.js"></script>
 <script src="core.js"></script>
 <script src="views.js"></script>
 <script src="forms.js"></script>
 <script src="pdf.js"></script>
+<script src="road.js"></script>
+<script src="tools.js"></script>
 <script>boot();</script>
 </body>
 </html>

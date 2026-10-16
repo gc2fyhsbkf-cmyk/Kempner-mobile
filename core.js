@@ -78,10 +78,28 @@ async function loadAll() {
     GEO = await KV.get("geo") || {};
   } catch (e) { toast("Storage error: " + e.message, 5000); }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  applyTheme();
   buildIndex();
 }
 async function savePending() { await KV.set("pending", PENDING); buildIndex(); updateBadges(); }
 const saveMeta = () => KV.set("meta", META);
+
+// ---------- colours: follow the PC by default (the PC is light unless Dark mode is ticked there) ----------
+const THEME_MODES = {pc: "Match the PC", light: "Light", dark: "Dark", phone: "Match iPhone setting"};
+const _darkMQ = window.matchMedia ? matchMedia("(prefers-color-scheme: dark)") : null;
+function themeEffective() {
+  const m = META.theme || "pc";
+  if (m === "light" || m === "dark") return m;
+  if (m === "phone") return _darkMQ && _darkMQ.matches ? "dark" : "light";
+  return SNAP && SNAP.theme === "dark" ? "dark" : "light";
+}
+function applyTheme() {
+  const eff = themeEffective(), dark = eff === "dark";
+  document.documentElement.classList.toggle("dark", dark);
+  const tc = document.getElementById("themeColor"); if (tc) tc.setAttribute("content", dark ? "#14171d" : "#ffffff");
+  try { localStorage.setItem("km_theme_eff", eff); } catch (e) {}
+}
+if (_darkMQ && _darkMQ.addEventListener) _darkMQ.addEventListener("change", () => { if (META.theme === "phone") applyTheme(); });
 
 // ---------- index (snapshot + pending merged) ----------
 function groupBy(rows, key) { const m = new Map(); for (const r of rows || []) { const k = String(r[key]); if (!m.has(k)) m.set(k, []); m.get(k).push(r); } return m; }
@@ -101,7 +119,7 @@ function buildIndex() {
   for (const n of CO_TABLES) IDX.by[n] = groupBy(t[n], "company_id");
   for (const n of ["phone_numbers","person_emails","person_dates"]) IDX.person[n] = groupBy(t[n], "person_id");
   for (const ev of PENDING) if (ev.type === "company_new") { const k = evCoKey(ev);
-    if (!IDX.co.has(k)) IDX.co.set(k, {_key: k, id: null, name: ev.data.name, status: "NONE", pipeline_stage: "Prospect", region: "", _pending: true, updated_at: ev.created_at}); }
+    if (!IDX.co.has(k)) IDX.co.set(k, {_key: k, id: null, name: ev.data.name, status: "NONE", pipeline_stage: "Prospect", region: "", segment: ev.data.segment || "", _pending: true, updated_at: ev.created_at}); }
   for (const ev of PENDING) { const k = evCoKey(ev);
     if (!IDX.pend.has(k)) IDX.pend.set(k, []); IDX.pend.get(k).push(ev);
     if (ev.type === "action_done") IDX.doneIds.set(ev.data.action_id, ev); }
@@ -205,6 +223,14 @@ async function addEvent(type, coKey, data) {
   await savePending();
   return ev;
 }
+// ---------- customer-list tabs (Main · 🛋 Lobby · any made on the PC) ----------
+const LOBBY = "Lobby";
+const segments = () => (SNAP && SNAP.segments && SNAP.segments.length) ? SNAP.segments : [{name: LOBBY, icon: "🛋", quiet: true}];
+function segOf(c) { const p = pend(c._key, "segment_set"); return p.length ? (p[p.length - 1].data.segment || "") : (c.segment || ""); }
+function isQuiet(c) { const s = segOf(c); return !!s && segments().some(x => x.name === s && x.quiet); }
+const segLabel = s => (s.icon ? s.icon + " " : "") + s.name;
+function leadInfo(c) { try { return c.lead_info ? JSON.parse(c.lead_info) : {}; } catch (e) { return {}; } }
+
 function describe(e) {
   const d = e.data || {};
   switch (e.type) {
@@ -218,6 +244,7 @@ function describe(e) {
       return `${e.type === "quote_new" ? "💷 Quote" : "🛒 Order"}: ${(d.lines||[]).map(l => `${num(l.quantity)}× ${l.description || l.product_name}`).join(", ")} — ${gbp(c.grand_total)}`; }
     case "signoff": return `✍️ Signed by ${d.person || "customer"}: ${d.statement}`;
     case "photo": return `📷 Photo${d.caption ? ": " + d.caption : ""}`;
+    case "segment_set": return d.segment ? `🗂 Move to ${d.segment}` : "⬆ Promote to the main list";
   }
   return e.type;
 }
@@ -307,9 +334,11 @@ $("#fileIn").onchange = async e => {
   PENDING = PENDING.filter(ev => !applied.has(ev.id));
   SNAP = data;
   try { await KV.set("snapshot", SNAP); await KV.set("pending", PENDING); } catch (err) { return toast("Couldn't store it: " + err.message, 6000); }
-  buildIndex(); updateBadges(); render();
+  applyTheme(); buildIndex(); updateBadges();
+  let extra = ""; if (window.onSnapshotLoaded) { try { extra = await window.onSnapshotLoaded() || ""; } catch (e) {} }
+  render();
   const cleared = before - PENDING.length;
-  toast(`✓ Loaded ${data.tables.companies.length} companies.${cleared ? ` ${cleared} synced item(s) cleared.` : ""}${PENDING.length ? ` ${PENDING.length} still to send.` : ""}`, 5000);
+  toast(`✓ Loaded ${data.tables.companies.length} companies.${cleared ? ` ${cleared} synced item(s) cleared.` : ""}${PENDING.length ? ` ${PENDING.length} still to send.` : ""}${extra}`, 5000);
 };
 function pickSnapshot() { const f = $("#fileIn"); f.value = ""; f.click(); }
 
