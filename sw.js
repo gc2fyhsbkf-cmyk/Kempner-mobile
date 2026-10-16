@@ -1,7 +1,7 @@
 // Kempner Mobile service worker: caches the app itself so it opens with no signal.
 // Your CRM data is NOT here — it lives in the phone's own storage, never on the web.
-const CACHE = "kempner-mobile-v10";
-const ASSETS = ["./", "index.html", "qrcode.js", "core.js", "views.js", "forms.js", "pdf.js", "road.js", "tools.js", "manifest.webmanifest",
+const CACHE = "kempner-mobile-v12";
+const ASSETS = ["./", "index.html", "qrcode.js", "core.js", "views.js", "forms.js", "pdf.js", "road.js", "tools.js", "card.js", "home.js", "card.html", "manifest.webmanifest",
   "icon-192.png", "icon-512.png", "apple-touch-icon.png", "jspdf.umd.min.js"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.allSettled(ASSETS.map(a => c.add(new Request(a, {cache: "reload"}))))).then(() => self.skipWaiting()));
@@ -16,7 +16,8 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET" || url.origin !== location.origin) return;
   // the customer reorder page and its film list always come straight from the web
   if (/\/reorder\.(html|json)$/.test(url.pathname)) return;
-  const app = req.mode === "navigate";
+  // only the app itself is cached as index.html — other pages (card.html, reorder.html) are themselves
+  const app = req.mode === "navigate" && /\/(index\.html)?$/.test(url.pathname);
   e.respondWith(fetch(req).then(r => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(app ? "index.html" : req, copy)); } return r; })
     .catch(() => caches.match(app ? "index.html" : req, {ignoreSearch: true}).then(hit => hit || caches.match("index.html"))));
 });

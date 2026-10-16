@@ -3,13 +3,18 @@
 An offline phone companion to the Kempner CRM. It's free: no App Store and no hosting bill. Your data stays on your phone and only moves when you send a file.
 
 ## Files (all at the top level on GitHub, no folders)
-`index.html`, `reorder.html`, `qrcode.js`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `road.js`, `tools.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
+`index.html`, `reorder.html`, `card.html`, `qrcode.js`, `card.js`, `home.js`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `road.js`, `tools.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
 
 To update: on GitHub, **Add file → Upload files**, drag in all the files and **Commit**. Then open the app twice with signal.
 
 `reorder.json` is not in this zip on purpose. The CRM makes it (see QR reorder stickers below), so uploading an app update never overwrites your customers' film lists.
 
 ## The tabs
+- **Home** (where the app opens):
+  - your business card (tap it for the QR)
+  - **Up next**: the next stop on today's plan or your next meeting, with Directions / Brief / Check in / Call
+  - quick buttons for a note, call, action, visit, photo, new lead, Nearby and cost per pack
+  - links to Today and your day's plan.
 - **Today**: overdue and due actions (tick ✓ to complete), meetings for the next 7 days with directions, plus the CRM's film reorders to chase and accounts that need a nudge.
 - **Companies**: search by name, person, phone number, postcode or tag. Filter by Mine/Everyone and status, and sort by A–Z, most overdue, health score or recently updated.
   - Tabs match the PC's: **Main**, **🛋 Lobby**, and any you add on the PC. A search looks across every tab.
@@ -24,11 +29,11 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - **📋 Brief** on every company: who you'll meet, the last conversations, open actions and quotes, recent orders, what they run, and trials. **🔊 Read aloud** reads it to you in the car, and **📍 Check in** logs you at the customer.
 - **Prices**: what each product last sold for, and to whom, plus the CRM's calculators (GP, VAT, price per m², thickness).
 - **🧮 Cost per pack** (Prices → Calculators, a company's ＋ Add, or tap a pack profile on Equipment):
-  - uses the CRM's L-sealer formula: film width = height + width + 30 mm overlap, rounded up to 50 mm; cut length = length + height + overlap + scrap
-  - shows packs per roll (less one for threading) and the film per pack
-  - the roll price is optional; offers the customer's last price for that film; compares turning the pack 90°
-  - can be saved as a note on the company
-- **Sync**: send changes to the CRM and load the latest snapshot.
+  - uses the CRM's L-sealer formula: film width = height + width + 30 mm overlap, rounded up to 50 mm; cut length = length + height + overlap + scrap; packs per roll less one for threading
+  - the roll price fills itself in from the customer's known film specs, then their last order for that film, and follows the film when you change thickness. Type your own to override it
+  - **↻ 90°** turns the pack, and the result shows how the turned version compares
+  - **💾 Save to this pack** (or **Save as a pack profile**) updates the CRM's pack profile at the next sync. Unsaved changes are kept on the phone, so you can leave and come back
+  - Share or save as a note too
 
 ## Adding things (all go into the CRM when you sync)
 - **Notes** using the CRM's own templates, with an optional status change (Urgent / Warm / OK / Cold).
@@ -36,7 +41,7 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - after you call from the app, it asks how it went
   - uses the same "Asked / noted" questions as Live Call
   - you can add a follow-up action.
-- **Actions** with quick dates and priorities. **Mark done** records the outcome, with a "same again next week" option.
+- **Actions** with quick dates and priorities. **✓** marks one done and records the outcome, with a "same again next week" option. **⏭** moves it to tomorrow, next Monday, next week and so on, or a date you pick, with an optional reason. It's moved in the CRM at the next sync.
 - **Visits / meetings** by type (film trial, commission, service, machine demo, check-up).
   - Films and machines you saw are added to the equipment list.
   - A meeting already booked in the CRM can be logged as done.
@@ -51,7 +56,7 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - **📅 Add to Calendar** on meetings and actions puts them in the iPhone Calendar with a reminder.
 
 ## Your business card
-- **🪪 My card** (top right of Today, or Sync → Settings) shows a QR code. People scan it with their camera to save your details. **Send my contact card** shares it as a contact file by AirDrop or text. Set your details once and they stay on the phone.
+- **🪪 My card** (top right of Today, or Sync → Settings) is your card on the Kempner letterhead. Tap it to turn it over to the QR code. Scanning it opens your **digital card** (card.html) on their phone: they see the card, then **Save to my contacts**, which saves you with the card as your contact photo and a note saying where you're from, or save the card to their Photos. If they'll have no signal, switch the QR to plain contact in Edit my details. People scan it with their camera to save your details. **Send my contact card** shares it as a contact file by AirDrop or text. Set your details once and they stay on the phone.
 
 ## QR reorder stickers
 - Set up on the PC: **📱 Phone sync → 🔖 QR reorder stickers**. Enter the app's web address and the orders email, add customers and their film(s), then:

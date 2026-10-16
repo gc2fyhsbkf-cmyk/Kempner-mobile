@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2efe8">
+<meta name="robots" content="noindex">
+<title>Business card · Kempner</title>
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root{color-scheme:light;--sub:#5b6474}
+*{box-sizing:border-box}
+body{margin:0;background:#e9e5dc;color:#15181f;font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px))}
+main{max-width:460px;margin:0 auto}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:12px;border:0;background:#d7182a;color:#fff;font-family:inherit;font-weight:650;font-size:17px;text-decoration:none;margin-top:10px}
+.btn.sec{background:#fff;color:#15181f;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.row{display:flex;gap:8px}.row .btn{flex:1;font-size:15px}
+.small{font-size:13px;color:var(--sub);text-align:center;margin-top:12px}
+.hidden{display:none}
+#imgBox{margin-top:12px;text-align:center}#imgBox img{width:100%;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+/* business card: bone/eggshell stock, Kempner letterhead, flips to the QR */
+.bcwrap{perspective:1200px;margin:10px auto 6px;max-width:440px}
+.bcflip{position:relative;width:100%;aspect-ratio:85/55;transition:transform .6s cubic-bezier(.3,.7,.2,1);transform-style:preserve-3d;cursor:pointer}
+.bcflip.back{transform:rotateY(180deg)}
+.bcface{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:4px;overflow:hidden;color:#2a2620;
+  background-color:#efe9dc;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .3 0 0 0 0 .22 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(120% 90% at 30% 20%,rgba(255,255,255,.55),rgba(255,255,255,0) 60%),linear-gradient(160deg,#f4efe4,#e7e0d0);
+  box-shadow:0 1px 1px rgba(0,0,0,.08),0 10px 28px rgba(40,30,10,.22),inset 0 0 0 1px rgba(120,100,70,.12)}
+.bcface.bk{transform:rotateY(180deg);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.bc-k{font:700 clamp(26px,8.6vw,38px)/1 "Times New Roman",Times,serif;color:#d7182a;letter-spacing:.04em;text-align:center;margin-top:7%;text-shadow:0 .5px 0 rgba(255,255,255,.5)}
+.bc-co{font:600 clamp(7px,2.1vw,9.5px)/1.2 "Times New Roman",Times,serif;letter-spacing:.32em;text-align:center;margin-top:4px;text-transform:uppercase}
+.bc-tag{font:italic 700 clamp(5.5px,1.55vw,7px)/1.3 "Times New Roman",Times,serif;letter-spacing:.06em;text-align:center;margin-top:3px;color:#5a5246;text-transform:uppercase}
+.bc-nm{font:400 clamp(12px,3.9vw,17px)/1.1 Copperplate,"Copperplate Gothic Light","Times New Roman",serif;letter-spacing:.16em;text-transform:uppercase;text-align:center;margin-top:9%}
+.bc-ti{font:400 clamp(7px,2.1vw,9.5px)/1.2 Copperplate,"Copperplate Gothic Light","Times New Roman",serif;letter-spacing:.2em;text-transform:uppercase;text-align:center;margin-top:4px;color:#5a5246}
+.bc-ft{position:absolute;left:6%;right:6%;bottom:7%;display:flex;justify-content:space-between;font:400 clamp(6.5px,2vw,9px)/1.55 Copperplate,"Copperplate Gothic Light","Times New Roman",serif;letter-spacing:.08em}
+.bc-ft .r{text-align:right}
+.bc-ad{position:absolute;left:0;right:0;bottom:2.6%;text-align:center;font:400 clamp(5px,1.45vw,6.5px)/1 "Times New Roman",serif;letter-spacing:.14em;color:#6b6252;text-transform:uppercase}
+.bc-qr2{width:58%;aspect-ratio:1;max-height:72%;mix-blend-mode:multiply}.bc-qr2 svg{width:100%;height:100%;display:block}
+.bc-qr2 svg rect[fill="white"]{fill:transparent}
+.bc-scan{font:400 clamp(6.5px,1.9vw,8.5px)/1 Copperplate,"Times New Roman",serif;letter-spacing:.22em;text-transform:uppercase;margin-top:5%;color:#5a5246}
+.bc-hint{text-align:center;font-size:13px;color:var(--sub);margin:6px 0 12px}
+</style>
+</head>
+<body>
+<main>
+  <div class="bcwrap"><div class="bcflip"><div class="bcface" id="face"></div></div></div>
+  <button class="btn" id="saveC">📇 Save to my contacts</button>
+  <button class="btn sec" id="saveI">🖼 Save the card to my Photos</button>
+  <div class="row"><a class="btn sec" id="call">📞 Call</a><a class="btn sec" id="mail">✉️ Email</a><a class="btn sec" id="web">🌐 Website</a></div>
+  <div id="imgBox" class="hidden"><img id="cardImg" alt="Business card"><div class="small">Press and hold the card, then choose <b>Save to Photos</b>.</div></div>
+  <p class="small" id="tip"></p>
+</main>
+<script src="card.js"></script>
+<script>
+"use strict";
+const c = cardFromHash(location.hash), first = String(c.name || "").split(" ")[0] || "me";
+if (!c.name) { document.querySelector("main").innerHTML = '<p class="small">This card link is incomplete. Please scan the QR code again.</p>'; }
+else {
+  document.title = c.name + " · Kempner";
+  document.getElementById("face").innerHTML = cardFrontHtml(c);
+  const tel = n => "tel:" + String(n).replace(/[^\d+]/g, "");
+  const callN = c.mobile || c.office, a = (id, href, show) => { const el = document.getElementById(id); if (show) el.href = href; else el.classList.add("hidden"); };
+  a("call", tel(callN || ""), !!callN); a("mail", "mailto:" + c.email, !!c.email);
+  a("web", /^https?:/i.test(c.website) ? c.website : "https://" + cardWeb(c), !!c.website);
+  document.getElementById("tip").innerHTML = `Saving puts ${first} in your contacts with this card as the picture, so you can find ${first} later by searching <b>Kempner</b>.`;
+  const iOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  document.getElementById("saveC").onclick = () => {
+    const vcf = vcardText(c, {photo: drawCard(c, "square"), note: cardNote(c, c._met)});
+    const url = URL.createObjectURL(new Blob([vcf], {type: "text/vcard"}));
+    if (iOS) { location.href = url; return; }   // iPhone opens the contact straight away with "Create New Contact"
+    const l = document.createElement("a"); l.href = url; l.download = cardFileName(c, "vcf"); document.body.appendChild(l); l.click(); l.remove();
+  };
+  document.getElementById("saveI").onclick = async () => {
+    const uri = drawCard(c, "card"), bin = atob(uri.split(",")[1]), arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const f = new File([arr], cardFileName(c, "png"), {type: "image/png"});
+    if (navigator.canShare && navigator.canShare({files: [f]})) { try { await navigator.share({files: [f]}); return; } catch (e) { if (e.name === "AbortError") return; } }
+    document.getElementById("cardImg").src = uri; document.getElementById("imgBox").classList.remove("hidden");
+  };
+}
+</script>
+</body>
+</html>

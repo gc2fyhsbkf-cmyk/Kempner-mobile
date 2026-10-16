@@ -481,36 +481,41 @@ function addToCalendar(key, kind, id) {
 }
 
 // ---------- MY BUSINESS CARD (QR → contact card on their phone) ----------
-const CARD_DEFAULTS = {name: "", title: "", mobile: "", office: "020 8952 5262", email: "", website: "www.kempner.co.uk",
-  company: "S. Kempner Limited", street: "498-500 Honeypot Lane", town: "Stanmore", county: "Middlesex", postcode: "HA7 1JZ"};
 function myCard() { return Object.assign({}, CARD_DEFAULTS, {name: META.user || (SNAP && SNAP.current_user) || ""}, META.card || {}); }
-function vcardText(c) {
-  const e = s => String(s || "").replace(/\\/g, "\\\\").replace(/([,;])/g, "\\$1").replace(/\n/g, "\\n");
-  const parts = c.name.trim().split(/\s+/), last = parts.length > 1 ? parts.pop() : "", first = parts.join(" ");
-  const web = c.website ? (/^https?:/i.test(c.website) ? c.website : "https://" + c.website) : "";
-  return ["BEGIN:VCARD", "VERSION:3.0", `N:${e(last)};${e(first)};;;`, `FN:${e(c.name)}`, c.company ? `ORG:${e(c.company)}` : "", c.title ? `TITLE:${e(c.title)}` : "",
-    c.mobile ? `TEL;TYPE=CELL:${c.mobile}` : "", c.office ? `TEL;TYPE=WORK:${c.office}` : "", c.email ? `EMAIL;TYPE=WORK:${c.email}` : "", web ? `URL:${web}` : "",
-    (c.street || c.town || c.postcode) ? `ADR;TYPE=WORK:;;${e(c.street)};${e(c.town)};${e(c.county)};${e(c.postcode)};United Kingdom` : "", "END:VCARD"].filter(Boolean).join("\r\n");
-}
+// What the QR opens: your digital card page (shows the card, saves you with the card as your contact photo) or the plain contact.
+const cardPageUrl = c => new URL("card.html", location.href).href.split("#")[0] + "#" + cardToHash(c, localDate());
+const cardQrText = c => (META.cardQr || "page") === "vcard" ? vcardText(c) : cardPageUrl(c);
 function qrSvg(text) {
   qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
   const q = qrcode(0, "M"); q.addData(text); q.make();
   return q.createSvgTag({cellSize: 6, margin: 2, scalable: true});
 }
-route(/^#\/card$/, () => {
+route(/^#\/card(\/qr)?$/, qrFirst => {
   const c = myCard();
   if (!c.name || !(c.mobile || c.email)) return go("#/card/edit");
-  setHeader("My business card", "#/", "today");
-  $("#view").innerHTML = `<div class="bizcard">
-      <div style="font:700 30px/1 'Times New Roman',serif;color:#e8192c;letter-spacing:.5px">KEMPNER</div>
-      <div class="bc-name">${esc(c.name)}</div>${c.title ? `<div class="bc-sub">${esc(c.title)}</div>` : ""}
-      <div class="bc-qr">${qrSvg(vcardText(c))}</div>
-      <div class="bc-sub">Scan with the camera to save my details</div>
-      <div class="bc-lines">${c.mobile ? `📱 ${esc(c.mobile)}<br>` : ""}${c.office ? `☎️ ${esc(c.office)}<br>` : ""}${c.email ? `✉️ ${esc(c.email)}<br>` : ""}${c.website ? `🌐 ${esc(c.website)}` : ""}</div></div>
-    <p class="small" style="text-align:center">Tip: turn your screen brightness up so it scans first time.</p>
-    <button class="btn block red" id="shareCard">📤 Send my contact card</button>
-    <a class="btn block sec" href="#/card/edit">✏️ Edit my details</a>`;
-  $("#shareCard").onclick = () => shareFile(new File([vcardText(c)], `${c.name.replace(/[\\/:*?"<>|]/g, "-")} - Kempner.vcf`, {type: "text/vcard"}));
+  setHeader("My business card", "#/home", "home");
+  const page = (META.cardQr || "page") !== "vcard";
+  $("#view").innerHTML = `<div class="bcwrap"><div class="bcflip" id="bcFlip">
+      <div class="bcface">${cardFrontHtml(c)}</div>
+      <div class="bcface bk"><div class="bc-qr2">${qrSvg(cardQrText(c))}</div><div class="bc-scan">Scan to save my card</div></div>
+    </div></div>
+    <div class="bc-hint" id="bcHint"></div>
+    <button class="btn block red" id="bcQr"></button>
+    <button class="btn block sec" id="shareCard" style="margin-top:8px">📤 Send my card (contact + picture)</button>
+    <a class="btn block sec" href="#/card/edit" style="margin-top:8px">✏️ Edit my details</a>
+    <p class="small" style="text-align:center;margin-top:10px">${page ? "Their camera opens your digital card, with a button to save you to their contacts, your card as the contact's photo. Needs signal on their phone." : "Their camera saves you straight to their contacts (works with no signal)."} Turn your brightness up so it scans first time.</p>`;
+  const flip = $("#bcFlip"), setSide = back => { flip.classList.toggle("back", back); $("#bcQr").textContent = back ? "🪪 Show the front" : "🔳 Show the QR to scan";
+    $("#bcHint").textContent = back ? "Point their camera at the code" : "Tap the card to turn it over for the QR code"; };
+  setSide(!!qrFirst);
+  flip.onclick = () => setSide(!flip.classList.contains("back"));
+  $("#bcQr").onclick = () => setSide(!flip.classList.contains("back"));
+  $("#shareCard").onclick = async () => {
+    const met = localDate(), vcf = new File([vcardText(c, {photo: drawCard(c, "square"), note: cardNote(c, met)})], cardFileName(c, "vcf"), {type: "text/vcard"});
+    const png = dataUriToFile(drawCard(c, "card"), cardFileName(c, "png"), "image/png");
+    const files = [vcf, png];
+    if (navigator.canShare && navigator.canShare({files})) { try { await navigator.share({files, text: page ? cardPageUrl(c) : undefined}); return; } catch (e) { if (e.name === "AbortError") return; } }
+    shareFile(vcf);
+  };
 });
 route(/^#\/card\/edit$/, () => {
   const c = myCard();
@@ -519,7 +524,9 @@ route(/^#\/card\/edit$/, () => {
     ${f("name", "Full name")}${f("title", "Job title", "text", "e.g. Area Sales Manager")}
     <div class="two"><div>${f("mobile", "Mobile", "tel")}</div><div>${f("office", "Office phone", "tel")}</div></div>
     ${f("email", "Work email", "email")}${f("website", "Website")}${f("company", "Company")}
+    <label class="f">When someone scans the QR</label><select class="f" name="qr"><option value="page" ${(META.cardQr || "page") !== "vcard" ? "selected" : ""}>Show my digital card, with Save to contacts (recommended)</option><option value="vcard" ${META.cardQr === "vcard" ? "selected" : ""}>Save me straight to contacts (works without signal)</option></select>
     <details class="more"><summary>Address</summary>${f("street", "Street")}<div class="two"><div>${f("town", "Town")}</div><div>${f("postcode", "Postcode")}</div></div>${f("county", "County")}</details>`,
     "Save card", async fd => { if (!fd.name) throw new Error("add your name"); if (!fd.mobile && !fd.email) throw new Error("add a mobile or an email");
-      META.card = Object.assign({}, CARD_DEFAULTS, fd); await saveMeta(); location.replace("#/card"); return false; }, "today");
+      META.cardQr = fd.qr === "vcard" ? "vcard" : "page"; delete fd.qr;
+      META.card = Object.assign({}, CARD_DEFAULTS, fd); await saveMeta(); location.replace("#/card"); return false; }, "home");
 });

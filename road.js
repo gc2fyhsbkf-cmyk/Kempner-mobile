@@ -158,7 +158,8 @@ function routeUrl(stops, start) {
 function suggestNear(stopsGeo, exclude) {
   if (!stopsGeo.length) return [];
   const mine = new Set(scope().map(c => c._key)), reasons = new Map();
-  const add = (k, r) => { if (!mine.has(String(k)) || exclude.has(String(k))) return; if (!reasons.has(String(k))) reasons.set(String(k), []); reasons.get(String(k)).push(r); };
+  const snz = (SNAP && SNAP.visit_snoozes) || {}, snoozed = k => String(k) in snz;  // snoozed on the PC's Plan visits
+  const add = (k, r) => { if (!mine.has(String(k)) || exclude.has(String(k)) || snoozed(k)) return; if (!reasons.has(String(k))) reasons.set(String(k), []); reasons.get(String(k)).push(r); };
   for (const r of (SNAP && SNAP.today && SNAP.today.reorder_digest) || []) add(r.company_id, r.state === "overdue" ? "film reorder overdue" : r.at_risk ? "reorder at risk" : "reorder due");
   for (const r of (SNAP && SNAP.today && SNAP.today.needs_attention) || []) add(r.company_id, (r.flags || []).includes("overdue_action") ? "dropped follow-up" : "needs a nudge");
   for (const c of scope()) { const n = openActions(c._key).filter(a => a.date && dayDiff(a.date) <= 0).length; if (n) add(c._key, `${n} action${n === 1 ? "" : "s"} due`); }
@@ -167,7 +168,7 @@ function suggestNear(stopsGeo, exclude) {
     const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= 6) out.push({key: k, d, rs: [...new Set(rs)]}); }
   // plus a few Lobby leads close to a stop — "while you're there, try these"
   const leads = [];
-  for (const c of scope()) { if (!isQuiet(c) || exclude.has(c._key)) continue; const g = geoOf(companyPostcode(c._key)); if (!g) continue;
+  for (const c of scope()) { if (!isQuiet(c) || exclude.has(c._key) || snoozed(c._key)) continue; const g = geoOf(companyPostcode(c._key)); if (!g) continue;
     const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= 3) leads.push({key: c._key, d, rs: ["🛋 lead to try" + (leadInfo(c).sector ? ` (${leadInfo(c).sector})` : "")]}); }
   return out.sort((a, b) => a.d - b.d).slice(0, 8).concat(leads.sort((a, b) => a.d - b.d).slice(0, 3));
 }

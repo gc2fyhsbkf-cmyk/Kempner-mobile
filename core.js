@@ -113,7 +113,7 @@ function buildIndex() {
   const t = (SNAP && SNAP.tables) || {};
   IDX = { co: new Map(), by: {}, person: {}, drawdowns: groupBy(t.call_off_drawdowns, "agreement_id"),
           users: new Map(((SNAP && SNAP.users) || []).map(u => [String(u.id), u.name])),
-          products: (SNAP && SNAP.products) || {}, pend: new Map(), doneIds: new Map(), hay: new Map(),
+          products: (SNAP && SNAP.products) || {}, pend: new Map(), doneIds: new Map(), moved: new Map(), hay: new Map(),
           files: groupBy((SNAP && SNAP.attachments) || [], "company_id") };
   for (const c of t.companies || []) IDX.co.set(String(c.id), Object.assign({}, c, {_key: String(c.id)}));
   for (const n of CO_TABLES) IDX.by[n] = groupBy(t[n], "company_id");
@@ -122,7 +122,8 @@ function buildIndex() {
     if (!IDX.co.has(k)) IDX.co.set(k, {_key: k, id: null, name: ev.data.name, status: "NONE", pipeline_stage: "Prospect", region: "", segment: ev.data.segment || "", _pending: true, updated_at: ev.created_at}); }
   for (const ev of PENDING) { const k = evCoKey(ev);
     if (!IDX.pend.has(k)) IDX.pend.set(k, []); IDX.pend.get(k).push(ev);
-    if (ev.type === "action_done") IDX.doneIds.set(ev.data.action_id, ev); }
+    if (ev.type === "action_done") IDX.doneIds.set(ev.data.action_id, ev);
+    if (ev.type === "action_move") IDX.moved.set(ev.data.action_id, ev); }
 }
 const rows = (table, key) => (IDX.by[table] && IDX.by[table].get(String(key))) || [];
 const pend = (key, type) => (IDX.pend.get(String(key)) || []).filter(e => !type || e.type === type);
@@ -158,7 +159,9 @@ function mainContact(key) {
   return {name: p.name, role: p.org_role || "", number: num, email: p.emails[0] || ""};
 }
 function actions(key) {
-  const out = rows("actions", key).map(a => { const d = IDX.doneIds.get(a.id); return d ? Object.assign({}, a, {status: "DONE", _doneEv: d}) : a; });
+  const out = rows("actions", key).map(a => { const d = IDX.doneIds.get(a.id), m = IDX.moved.get(a.id);
+    if (d) return Object.assign({}, a, {status: "DONE", _doneEv: d});
+    return m ? Object.assign({}, a, {date: m.data.date, time: m.data.time ?? a.time, _moved: m}) : a; });
   for (const ev of pend(key, "action_new")) { const id = phoneActionId(ev), d = IDX.doneIds.get(id);
     out.push(Object.assign({}, ev.data, {id, company_id: key, status: d ? "DONE" : "OPEN", _pending: ev, _doneEv: d})); }
   return out;
@@ -236,6 +239,7 @@ function describe(e) {
   switch (e.type) {
     case "note": return "📝 " + (d.reference === "Phone call" ? "Call: " : "") + d.content;
     case "action_new": return `✅ ${d.note} (${niceDate(d.date)})`;
+    case "action_move": return `⏭ Moved to ${niceDate(d.date)}${d.time ? " " + d.time : ""}: ${d.action_note}${d.reason ? " (" + d.reason + ")" : ""}`;
     case "action_done": return `☑️ Done: ${d.action_note}${d.outcome ? " → " + d.outcome : ""}`;
     case "meeting": return `🤝 ${d.status === "DONE" ? "Visit" : "Booked"} ${niceDate(d.date)}: ${d.notes || d.location || ""}`;
     case "contact_new": return `👤 ${d.name}`;
@@ -244,6 +248,7 @@ function describe(e) {
       return `${e.type === "quote_new" ? "💷 Quote" : "🛒 Order"}: ${(d.lines||[]).map(l => `${num(l.quantity)}× ${l.description || l.product_name}`).join(", ")} — ${gbp(c.grand_total)}`; }
     case "signoff": return `✍️ Signed by ${d.person || "customer"}: ${d.statement}`;
     case "photo": return `📷 Photo${d.caption ? ": " + d.caption : ""}`;
+    case "pack_save": return `📦 Pack ${d.profile_id ? "updated" : "added"}: ${d.name} (${num(d.length_mm)}×${num(d.width_mm)}×${num(d.height_mm)} mm)`;
     case "segment_set": return d.segment ? `🗂 Move to ${d.segment}` : "⬆ Promote to the main list";
   }
   return e.type;
@@ -360,11 +365,14 @@ function healthBanners() {
 
 async function boot() {
   await loadAll();
+  // opening the app lands on Home (links to a particular screen still work)
+  if (!location.hash || location.hash === "#" || location.hash === "#/") history.replaceState(null, "", "#/home");
   updateBadges();
   render();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+document.getElementById("brand").addEventListener("click", () => go("#/home"));
 // Tapping a bottom tab always closes any open sheet and refreshes that screen, even if it's the current one.
 document.getElementById("tabs").addEventListener("click", e => {
   const a = e.target.closest("a"); if (!a) return;

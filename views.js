@@ -51,10 +51,34 @@ function quietRow(c, extraRight = "") { // Lobby leads: no score, no warnings �
     <div class="s">${esc(sub || li.sector || "prospect")}</div></div>${extraRight}</a>`;
 }
 function actionRow(c, a, showCo = true) {
-  return `<div class="row ${a._pending ? "pend" : ""}">
+  return `<div class="row ${a._pending || a._moved ? "pend" : ""}">
     <button class="done" data-done="${esc(c._key)}|${esc(a.id)}" aria-label="Mark done">✓</button>
     <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t" style="white-space:normal">${a.tier == 1 ? "⭐ " : ""}${esc(a.note)}</div>
-    <div class="s"><span class="${dueClass(a.date)}">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""}</span>${showCo ? " · " + esc(c.name) : ""}${a.channel ? " · " + esc(a.channel) : ""}${a._pending ? " · not synced" : ""}</div></a></div>`;
+    <div class="s"><span class="${dueClass(a.date)}">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""}</span>${showCo ? " · " + esc(c.name) : ""}${a.channel ? " · " + esc(a.channel) : ""}${a._pending ? " · not synced" : a._moved ? " · moved, not synced" : ""}</div></a>
+    <button class="push" data-push="${esc(c._key)}|${esc(a.id)}" aria-label="Reschedule">⏭</button></div>`;
+}
+// ⏭ push / reschedule an action
+document.addEventListener("click", e => { const b = e.target.closest("[data-push]"); if (!b) return; e.preventDefault(); e.stopPropagation();
+  const [k, id] = b.dataset.push.split("|"); pushSheet(k, id); });
+function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return localDate(d); }
+function pushSheet(key, aid) {
+  const c = IDX.co.get(key), a = actions(key).find(x => x.id === aid); if (!c || !a) return toast("Action not found");
+  const opts = [["Tomorrow", nextWorkday(1)], ["In 2 days", nextWorkday(2)], ["Next Monday", nextMonday()], ["In a week", nextWorkday(7)], ["In 2 weeks", nextWorkday(14)], ["In a month", nextWorkday(30)]];
+  openSheet(`<b style="font-size:17px">⏭ Move this action</b>
+    <div class="card" style="margin-top:8px"><div class="small">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""} · ${esc(c.name)}</div><div style="font-weight:650">${esc(a.note)}</div></div>
+    <div class="qgrid">${opts.map(([l, d]) => `<button class="fchip" data-to="${d}">${l}<br><span class="small">${esc(niceDate(d))}</span></button>`).join("")}</div>
+    <div class="two"><div><label class="f">Or pick a date</label><input class="f" type="date" id="pDate" value="${esc(a.date && dayDiff(a.date) > 0 ? a.date : nextWorkday(1))}"></div>
+      <div><label class="f">Time (optional)</label><input class="f" type="time" id="pTime" value="${esc(a.time || "")}"></div></div>
+    <label class="f">Why? (optional)</label><input class="f" id="pWhy" placeholder="e.g. They're away until Monday">
+    <button class="btn block" id="pGo" style="margin-top:12px">Move it</button>`, el => {
+    const move = async date => { if (!date) return toast("Pick a date");
+      const time = el.querySelector("#pTime").value, reason = el.querySelector("#pWhy").value.trim();
+      if (a._pending) { a._pending.data.date = date; a._pending.data.time = time; await savePending(); }   // not synced yet: just change it
+      else await addEvent("action_move", key, {action_id: a.id, action_note: a.note, date, time, old_date: a.date || "", reason});
+      closeSheet(); toast(`Moved to ${niceDate(date)}`); render(); };
+    el.querySelectorAll("[data-to]").forEach(b => b.onclick = () => move(b.dataset.to));
+    el.querySelector("#pGo").onclick = () => move(el.querySelector("#pDate").value);
+  });
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-done]"); if (!b) return; e.preventDefault();
   const [k, id] = b.dataset.done.split("|"); go(`#/done/${encodeURIComponent(k)}/${encodeURIComponent(id)}`); });
@@ -294,16 +318,16 @@ const TAB_RENDER = {
   },
   equipment: ({key, eq, specs}) => {
     const eqPend = pend(key, "meeting").filter(e => e.data.add_to_equipment && (e.data.films_seen || e.data.machines_seen));
-    const packs = rows("company_pack_profiles", key), trials = rows("company_film_trials", key);
+    const packs = packProfiles(key), trials = rows("company_film_trials", key);
     return `<h2>🏭 Machines & film on site <span class="r small">${eq.length}</span></h2><div class="list">${eq.map(e => `<div class="item"><b>${esc(e.name)}</b>${e.quantity > 1 ? ` ×${esc(e.quantity)}` : ""}
         <span class="chip">${e.machine_type === "film" ? "🎞 film" : "⚙ machine"}</span>${e.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip">theirs</span>'}
         ${e.manufacturer ? `<div class="small">${esc(e.manufacturer)}</div>` : ""}${e.notes ? `<div class="small">${esc(e.notes)}</div>` : ""}${e.fit_notes ? `<div class="small">${esc(e.fit_notes)}</div>` : ""}</div>`).join("")
         + eqPend.map(ev => `<div class="item pend">${esc([ev.data.films_seen, ev.data.machines_seen].filter(Boolean).join(", "))} ${pendBadge({_pending: 1})}</div>`).join("") || '<div class="empty">Nothing recorded. Log a visit to add what you see.</div>'}</div>
-      ${specs.length ? `<h2>🎞 Known film specs</h2><div class="list">${specs.map(s => `<div class="item"><b>${num(s.width_mm)}mm × ${num(s.thickness_micron)}µm</b>${s.roll_length_m ? ` · ${num(s.roll_length_m)}m` : ""}
+      ${specs.length ? `<h2>🎞 Known film specs</h2><div class="list">${specs.map(s => `<div class="item"><b>${num(s.thickness_micron)}µm · ${s.roll_length_m ? (+s.roll_length_m).toLocaleString("en-GB") + " m" : "std length"}</b> · ${num(s.width_mm)}mm
         ${s.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip c-red">competitor</span>'}${s.is_suggested ? '<span class="chip c-blue">suggested</span>' : ""}
         ${s.supplier ? `<div class="small">Supplier: ${esc(s.supplier)}</div>` : ""}${s.roll_price ? `<div class="small">${gbp(s.roll_price)}/roll</div>` : ""}${s.notes ? `<div class="small">${esc(s.notes)}</div>` : ""}</div>`).join("")}</div>` : ""}
-      <h2>📦 Pack profiles<a class="r small" href="#/pack/${encodeURIComponent(key)}">🧮 Cost per pack ›</a></h2>${packs.length ? `<div class="list">${packs.map(p => `<a class="item" style="display:block;color:inherit" href="#/pack/${encodeURIComponent(key)}/${p.id}"><span style="float:right" class="chip c-blue">🧮 cost</span><b>${esc(p.name)}</b> ${p.category ? `<span class="chip">${esc(p.category)}</span>` : ""}${p.frequency ? `<span class="chip">${esc(p.frequency)}</span>` : ""}
-        <div class="small">${[p.length_mm, p.width_mm, p.height_mm].some(x => x) ? `${num(p.length_mm)} × ${num(p.width_mm)} × ${num(p.height_mm)} mm` : ""}${p.thickness_micron ? ` · ${num(p.thickness_micron)}µm` : ""}</div>${p.notes ? `<div class="small">${esc(p.notes)}</div>` : ""}</a>`).join("")}</div>` : '<div class="empty" style="background:var(--card);border-radius:14px">No pack profiles in the CRM — <a href="#/pack/' + encodeURIComponent(key) + '">work one out</a>.</div>'}
+      <h2>📦 Pack profiles<a class="r small" href="#/pack/${encodeURIComponent(key)}">🧮 Cost per pack ›</a></h2>${packs.length ? `<div class="list">${packs.map(p => `<a class="item" style="display:block;color:inherit" href="#/pack/${encodeURIComponent(key)}/${p.id}"><span style="float:right" class="chip c-blue">🧮 open</span><b>${esc(p.name)}</b>${p._pending ? pendBadge({_pending: 1}) : ""} ${p.category ? `<span class="chip">${esc(p.category)}</span>` : ""}${p.frequency ? `<span class="chip">${esc(p.frequency)}</span>` : ""}
+        <div class="small">${[p.length_mm, p.width_mm, p.height_mm].some(x => x) ? `${num(p.length_mm)} × ${num(p.width_mm)} × ${num(p.height_mm)} mm` : ""}${p.thickness_micron ? ` · ${num(p.thickness_micron)}µm` : ""}</div>${packSummary(key, p) ? `<div class="small">🧮 ${packSummary(key, p)}</div>` : ""}${p.notes ? `<div class="small">${esc(p.notes)}</div>` : ""}</a>`).join("")}</div>` : '<div class="empty" style="background:var(--card);border-radius:14px">No pack profiles in the CRM — <a href="#/pack/' + encodeURIComponent(key) + '">work one out</a>.</div>'}
       ${trials.length ? `<h2>🧪 Film trials</h2><div class="list">${trials.map(t => `<div class="item"><div class="meta">${niceDate(t.trial_date)}</div><b>${esc(t.spec_name)}</b> ${["worked","interested","ordered"].filter(k => t[k]).map(k => `<span class="chip c-green">${k}</span>`).join("")}${t.notes ? `<div class="small">${esc(t.notes)}</div>` : ""}</div>`).join("")}</div>` : ""}`;
   },
   files: ({key, files}) => `<div style="display:flex;gap:6px;margin:6px 0"><button class="btn sm" onclick="takePhoto('${esc(key)}')">📷 Take photo</button><a class="btn sm" style="background:var(--purple)" href="#/sign/${encodeURIComponent(key)}">✍️ Sign-off sheet</a></div>
@@ -491,7 +515,7 @@ route(/^#\/sync$/, () => {
       <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
       <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 6 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 8 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
