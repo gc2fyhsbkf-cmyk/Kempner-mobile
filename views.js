@@ -53,13 +53,28 @@ function quietRow(c, extraRight = "") { // Lobby leads: no score, no warnings �
 function actionRow(c, a, showCo = true) {
   return `<div class="row ${a._pending || a._moved ? "pend" : ""}">
     <button class="done" data-done="${esc(c._key)}|${esc(a.id)}" aria-label="Mark done">✓</button>
-    <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t" style="white-space:normal">${a.tier == 1 ? "⭐ " : ""}${esc(a.note)}</div>
+    <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t" style="white-space:normal">${a.pinned ? "📌 " : ""}${a.tier == 1 ? "⭐ " : ""}${esc(a.note)}</div>
     <div class="s"><span class="${dueClass(a.date)}">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""}</span>${showCo ? " · " + esc(c.name) : ""}${a.channel ? " · " + esc(a.channel) : ""}${a._pending ? " · not synced" : a._moved ? " · moved, not synced" : ""}</div></a>
     <button class="push" data-push="${esc(c._key)}|${esc(a.id)}" aria-label="Reschedule">⏭</button></div>`;
 }
 // ⏭ push / reschedule an action
 document.addEventListener("click", e => { const b = e.target.closest("[data-push]"); if (!b) return; e.preventDefault(); e.stopPropagation();
   const [k, id] = b.dataset.push.split("|"); pushSheet(k, id); });
+function moveAllSheet(list) {
+  const opts = [["Tomorrow", nextWorkday(1)], ["Next Monday", nextMonday()], ["In a week", nextWorkday(7)]];
+  openSheet(`<b style="font-size:17px">⏭ Move all overdue</b><div class="small" style="margin:4px 0 8px">Untick any you want to keep where they are.</div>
+    <div class="list" style="max-height:44vh;overflow:auto">${list.map(([c, a], i) => `<label class="row" style="gap:10px"><input type="checkbox" data-mi="${i}" checked style="transform:scale(1.3)"><div class="m"><div class="t" style="font-size:14px">${esc(a.note)}</div><div class="s">${esc(c.name)} · ${esc(niceDate(a.date))}</div></div></label>`).join("")}</div>
+    <div class="qgrid" style="grid-template-columns:repeat(3,1fr)">${opts.map(([l, d]) => `<button class="fchip" data-to="${d}">${l}<br><span class="small">${esc(niceDate(d))}</span></button>`).join("")}</div>`, el => {
+    el.querySelectorAll("[data-to]").forEach(b => b.onclick = async () => {
+      const picked = [...el.querySelectorAll("[data-mi]")].filter(x => x.checked).map(x => list[+x.dataset.mi]);
+      if (!picked.length) return toast("Nothing ticked");
+      for (const [c, a] of picked) {
+        if (a._pending) a._pending.data.date = b.dataset.to;
+        else await addEvent("action_move", c._key, {action_id: a.id, action_note: a.note, date: b.dataset.to, time: a.time || "", old_date: a.date || "", reason: "moved in bulk from the phone"});
+      }
+      await savePending(); closeSheet(); toast(`Moved ${picked.length} to ${niceDate(b.dataset.to)}`); render(); });
+  });
+}
 function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return localDate(d); }
 function pushSheet(key, aid) {
   const c = IDX.co.get(key), a = actions(key).find(x => x.id === aid); if (!c || !a) return toast("Action not found");
@@ -70,7 +85,12 @@ function pushSheet(key, aid) {
     <div class="two"><div><label class="f">Or pick a date</label><input class="f" type="date" id="pDate" value="${esc(a.date && dayDiff(a.date) > 0 ? a.date : nextWorkday(1))}"></div>
       <div><label class="f">Time (optional)</label><input class="f" type="time" id="pTime" value="${esc(a.time || "")}"></div></div>
     <label class="f">Why? (optional)</label><input class="f" id="pWhy" placeholder="e.g. They're away until Monday">
-    <button class="btn block" id="pGo" style="margin-top:12px">Move it</button>`, el => {
+    <button class="btn block" id="pGo" style="margin-top:12px">Move it</button>
+    <button class="btn block sec" id="pPin" style="margin-top:8px">${a.pinned ? "Unpin it" : "📌 Pin it to the top of Today"}</button>`, el => {
+    el.querySelector("#pPin").onclick = async () => {
+      if (a._pending) { a._pending.data.pinned = a.pinned ? 0 : 1; await savePending(); }
+      else await addEvent("action_pin", key, {action_id: a.id, action_note: a.note, pinned: a.pinned ? 0 : 1});
+      closeSheet(); toast(a.pinned ? "Unpinned" : "📌 Pinned"); render(); };
     const move = async date => { if (!date) return toast("Pick a date");
       const time = el.querySelector("#pTime").value, reason = el.querySelector("#pWhy").value.trim();
       if (a._pending) { a._pending.data.date = date; a._pending.data.time = time; await savePending(); }   // not synced yet: just change it
@@ -95,13 +115,15 @@ route(/^#\/$/, () => {
   const v = $("#view");
   if (!SNAP && !PENDING.length) { v.innerHTML = welcomeCard(); showFab(() => go("#/newco")); return; }
   const cos = scope(), keys = cos.map(c => c._key), today = localDate();
-  const over = [], due = [], soon = [];
+  // 📌 pinned actions (pin them on the PC before you head out) sit up top in full; everything else is tidied away below
+  const pinned = [], over = [], due = [], soon = [], later = [];
   for (const k of keys) for (const a of openActions(k)) {
-    const dd = dayDiff(a.date), c = IDX.co.get(k);
-    if (!a.date) continue; if (dd < 0) over.push([c, a]); else if (dd === 0) due.push([c, a]); else if (dd <= 7) soon.push([c, a]);
+    const c = IDX.co.get(k), dd = a.date ? dayDiff(a.date) : null;
+    if (a.pinned) { pinned.push([c, a]); continue; }
+    if (dd == null) later.push([c, a]); else if (dd < 0) over.push([c, a]); else if (dd === 0) due.push([c, a]); else if (dd <= 7) soon.push([c, a]); else later.push([c, a]);
   }
-  const byDate = (x, y) => ((x[1].date || "") + (x[1].time || "")).localeCompare((y[1].date || "") + (y[1].time || "")) || (x[1].tier || 2) - (y[1].tier || 2);
-  over.sort(byDate); due.sort(byDate); soon.sort(byDate);
+  const byDate = (x, y) => ((x[1].date || "9") + (x[1].time || "")).localeCompare((y[1].date || "9") + (y[1].time || "")) || (x[1].tier || 2) - (y[1].tier || 2);
+  [pinned, over, due, soon, later].forEach(l => l.sort(byDate));
   const mt = [];
   for (const k of keys) for (const m of meetings(k)) if (m.status !== "DONE" && m.date >= today && dayDiff(m.date) <= 7) mt.push([IDX.co.get(k), m]);
   mt.sort((x, y) => (x[1].date + (x[1].time || "")).localeCompare(y[1].date + (y[1].time || "")));
@@ -111,21 +133,41 @@ route(/^#\/$/, () => {
     <div class="small">${DOW[new Date().getDay()]} ${new Date().getDate()} ${MON[new Date().getMonth()]} · ${cos.length} ${META.filter === "all" ? "companies" : "of your companies"}</div></div>`);
   h.push(healthBanners());
   h.push(`<div id="nearStop"></div>`);
+  const BUCKETS = {over: ["⚠ Overdue", over], due: ["⏰ Today", due], soon: ["📅 This week", soon], all: ["All", over.concat(due, soon, later)]};
+  let tab = META.todayTab && BUCKETS[META.todayTab] ? META.todayTab : (due.length ? "due" : over.length ? "over" : "soon");
   h.push(`<div class="tiles">
-    <a class="tile" style="background:var(--red)" href="#today-over"><b>${over.length}</b><span>Overdue</span></a>
-    <a class="tile" style="background:var(--amber);color:#111" href="#today-due"><b>${due.length}</b><span>Due today</span></a>
-    <a class="tile" style="background:var(--blue)" href="#today-mt"><b>${mt.length}</b><span>Meetings 7d</span></a>
-    <a class="tile" style="background:var(--purple)" href="#/sync"><b>${PENDING.length}</b><span>To send</span></a></div>`);
+    <a class="tile" style="background:#b45309" href="#today-pin"><b>${pinned.length}</b><span>📌 Pinned</span></a>
+    <a class="tile" style="background:var(--red)" href="#" data-tt="over"><b>${over.length}</b><span>Overdue</span></a>
+    <a class="tile" style="background:var(--amber);color:#111" href="#" data-tt="due"><b>${due.length}</b><span>Due today</span></a>
+    <a class="tile" style="background:var(--blue)" href="#today-mt"><b>${mt.length}</b><span>Meetings 7d</span></a></div>`);
   h.push(todayPlanCard());
+  h.push(`<h2 id="today-pin">📌 Pinned <span class="r small">${pinned.length}</span></h2>${pinned.length ? `<div class="list">${pinned.map(([c, a]) => actionRow(c, a)).join("")}</div>`
+    : `<div class="card small">Pin the actions you want in front of you (📌 on the PC, or ⏭ → Pin here) and they'll sit at the top. Everything else is still below, just tucked away.</div>`}`);
   if (mt.length) h.push(`<h2 id="today-mt">🤝 Meetings — next 7 days</h2><div class="list">${mt.map(([c, m]) => {
     const addr = rows("addresses", c._key)[0];
     return `<div class="row ${m._pending ? "pend" : ""}"><div style="text-align:center;min-width:44px"><div style="font-size:11px;font-weight:800;color:var(--red)">${esc(niceDate(m.date).split(" ")[0].toUpperCase())}</div><div style="font-weight:800">${esc(m.time || "—")}</div></div>
       <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t">${MEETING_ICON[m.meeting_type || ""] || "🤝"} ${esc(c.name)}</div><div class="s">${esc(niceDate(m.date))}${m.location ? " · " + esc(m.location) : ""}${m.meeting_type ? " · " + esc(MEETING_TYPES[m.meeting_type] || m.meeting_type) : ""}</div></a>
       ${addr ? `<a class="btn sm sec" href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭</a>` : ""}</div>`; }).join("")}</div>`);
-  h.push(`<h2 id="today-over">⚠ Overdue <span class="r small">${over.length}</span></h2><div class="list">${over.slice(0, 30).map(([c, a]) => actionRow(c, a)).join("") || '<div class="empty">Nothing overdue 🎉</div>'}</div>`);
-  if (over.length > 30) h.push(`<a class="btn sec block" href="#/companies">See all companies</a>`);
-  h.push(`<h2 id="today-due">⏰ Due today <span class="r small">${due.length}</span></h2><div class="list">${due.map(([c, a]) => actionRow(c, a)).join("") || '<div class="empty">Nothing else due today.</div>'}</div>`);
-  if (soon.length) h.push(`<h2>📅 Coming up this week</h2><div class="list">${soon.slice(0, 15).map(([c, a]) => actionRow(c, a)).join("")}</div>`);
+  h.push(`<h2 id="today-acts">📋 Other actions <span class="r small">${over.length + due.length + soon.length + later.length}</span></h2>
+    <div class="seg" id="tTabs" style="margin-top:0">${Object.entries(BUCKETS).map(([k, [l, list]]) => `<button data-tb="${k}" class="${k === tab ? "on" : ""}">${l} <span class="muted">${list.length}</span></button>`).join("")}</div>
+    <div id="tBody"></div>`);
+  const drawBucket = () => {
+    const list = BUCKETS[tab][1], cap = META.todayAll ? 1e9 : 8, groups = new Map();
+    for (const [c, a] of list) { if (!groups.has(c._key)) groups.set(c._key, {c, acts: []}); groups.get(c._key).acts.push(a); }
+    let shown = 0, html = "";
+    for (const {c, acts} of groups.values()) { if (shown >= cap) break;
+      const take = acts.slice(0, Math.max(1, cap - shown)); shown += take.length;
+      html += `<div class="cgrp"><a class="cgh" href="${coHref(c._key)}">${esc(c.name)}${acts.length > 1 ? ` <span class="chip" style="font-size:10.5px;padding:0 6px">${acts.length}</span>` : ""}<span class="chev">›</span></a>
+        ${take.map(a => `<div class="crow ${a._pending || a._moved ? "pend" : ""}"><button class="cdone" data-done="${esc(c._key)}|${esc(a.id)}" aria-label="Done">✓</button>
+          <div class="ct">${a.tier == 1 ? "⭐ " : ""}${esc(a.note)}</div><span class="cd ${dueClass(a.date)}">${a.date ? esc(niceDate(a.date).replace(/^\w+ /, "")) : "no date"}</span>
+          <button class="cpush" data-push="${esc(c._key)}|${esc(a.id)}" aria-label="Move">⏭</button></div>`).join("")}</div>`; }
+    $("#tBody").innerHTML = (tab === "over" && over.length ? `<button class="btn sm sec" id="moveAll" style="margin:8px 0 2px">⏭ Move all overdue…</button>` : "")
+      + `<div class="list" style="margin-top:6px">${html || `<div class="empty">${tab === "over" ? "Nothing overdue 🎉" : "Nothing here."}</div>`}</div>`
+      + (list.length > shown ? `<button class="btn sec block" id="tMore">Show all ${list.length}</button>` : META.todayAll && list.length > 8 ? `<button class="btn sec block" id="tLess">Show fewer</button>` : "");
+    const mv = $("#moveAll"); if (mv) mv.onclick = () => moveAllSheet(over);
+    const more = $("#tMore"); if (more) more.onclick = () => { META.todayAll = true; saveMeta(); drawBucket(); };
+    const less = $("#tLess"); if (less) less.onclick = () => { META.todayAll = false; saveMeta(); drawBucket(); };
+  };
   // CRM's own Today-page lists
   const mine = new Set(keys);
   const reo = ((SNAP && SNAP.today && SNAP.today.reorder_digest) || []).filter(r => mine.has(String(r.company_id))).slice(0, 12);
@@ -139,6 +181,10 @@ route(/^#\/$/, () => {
   if (na.length) h.push(`<h2>👀 Needs a nudge</h2><div class="list">${na.map(r => `<a class="row" href="${coHref(r.company_id)}"><div class="m"><div class="t">${esc(r.company)}</div>
       <div class="s">${(r.flags || []).map(f => FL[f] || f).join(" · ")}${r.days_silent != null ? ` · ${r.days_silent} days silent` : ""}</div></div><span class="chev">›</span></a>`).join("")}</div>`);
   v.innerHTML = h.join("");
+  drawBucket();
+  const setTab = t => { tab = t; META.todayTab = t; saveMeta(); document.querySelectorAll("#tTabs button").forEach(b => b.classList.toggle("on", b.dataset.tb === t)); drawBucket(); };
+  v.querySelectorAll("[data-tb]").forEach(b => b.onclick = () => setTab(b.dataset.tb));
+  v.querySelectorAll("[data-tt]").forEach(a => a.onclick = e => { e.preventDefault(); setTab(a.dataset.tt); document.getElementById("today-acts").scrollIntoView({behavior: "smooth", block: "start"}); });
   v.querySelectorAll('a[href^="#today-"]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.getAttribute("href").slice(1)); if (t) t.scrollIntoView({behavior: "smooth", block: "start"}); });
   showFab(() => quickAddSheet(null));
   nearStopCheck();
@@ -259,7 +305,7 @@ function meetingItem(key, m) {
     ${m.contacts ? `<div class="small">With: ${esc(m.contacts)}</div>` : ""}<div class="body">${esc(m.notes || "")}</div>
     ${m.status !== "DONE" ? `<div style="display:flex;gap:6px;margin-top:8px">${!m._pending ? `<a class="btn sm green" href="#/add/meeting/${encodeURIComponent(key)}/${encodeURIComponent(m.id)}">✓ Log as done</a>` : ""}<button class="btn sm sec" data-ics="meeting|${esc(m.id)}">📅 Add to Calendar</button></div>` : ""}</div>`;
 }
-function groupHtml(g, isOrder) {
+function groupHtml(g, isOrder, key) {
   const icon = ln => ln.section === "Film" ? "🎞" : ln.section === "Machines" ? "⚙" : "•";
   const tot = `Goods ${gbp(g.subtotal)}${g.shipping_cost ? ` + Shipping ${gbp(g.shipping_cost)}` : ""} = ${gbp((g.subtotal || 0) + (g.shipping_cost || 0))} +VAT ${gbp(g.vat_amount)} → ${gbp(g.grand_total)}`;
   return `<div class="item ${g._pending ? "pend" : ""}"><div class="qhead"><span class="small">${niceDate(isOrder ? g.order_date : g.date)}</span><span class="hl">${esc(g.headline)}${pendBadge(g)}</span>
@@ -267,7 +313,8 @@ function groupHtml(g, isOrder) {
     ${g.quote_number ? `<div class="small"><b>${esc(g.quote_number)}</b></div>` : ""}
     ${(g.lines || []).map(ln => { const pr = isOrder ? ln.unit_price : (ln.agreed_price || ln.quoted_price || 0);
       return `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(pr)}${!isOrder && ln.agreed_price && ln.quoted_price && ln.agreed_price != ln.quoted_price ? ` (was ${gbp(ln.quoted_price)})` : ""}</div>`; }).join("")}
-    <div class="tot">${tot}</div>${g.follow_up_date ? `<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>` : ""}${g.competitor ? `<div class="small">vs ${esc(g.competitor)}</div>` : ""}${g.notes ? `<div class="small">${esc(g.notes)}</div>` : ""}</div>`;
+    <div class="tot">${tot}</div>${!isOrder && key ? (quoteConverted(key, g) ? `<div class="small t-green" style="font-weight:700">✓ Converted to an order${g._pending || pend(key, "order_new").some(e => e.data.from_quote && e.data.from_quote.key === quoteKeyOf(g)) ? " (not synced)" : ""}</div>`
+      : ["rejected", "expired", "lost"].includes(String(g.status || "").toLowerCase()) ? "" : `<a class="btn sm" style="background:var(--teal);margin:6px 0 2px" href="#/add/order/${encodeURIComponent(key)}?from=${encodeURIComponent(quoteKeyOf(g))}">🛒 Convert to order</a>`) : ""}${g.follow_up_date ? `<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>` : ""}${g.competitor ? `<div class="small">vs ${esc(g.competitor)}</div>` : ""}${g.notes ? `<div class="small">${esc(g.notes)}</div>` : ""}</div>`;
 }
 const TAB_RENDER = {
   overview: ({key, c, v, open, nts, mts, addr, over}) => {
@@ -281,7 +328,8 @@ const TAB_RENDER = {
     const up = mts.filter(m => m.status !== "DONE" && m.date >= localDate()).sort((a, b) => (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")));
     if (up.length) h.push(`<h2>🤝 Next meeting</h2><div class="list">${meetingItem(key, up[0])}</div>`);
     h.push(`<h2>📝 Latest notes<a class="r small" data-gotab="notes">All ${nts.length} ›</a></h2><div class="list">${notesHtml(nts, 3) || '<div class="empty">No notes yet.</div>'}</div>`);
-    if (addr) h.push(`<h2>📍 Address</h2><div class="card"><div class="body" style="white-space:pre-wrap">${esc(addr.lines)}</div>
+    if (!addr) h.push(`<h2>📍 Address</h2><a class="banner soft" href="#/add/address/${encodeURIComponent(key)}">📍 <span>No address yet — add one (needed for Nearby, routes and mileage)</span><span class="chev">›</span></a>`);
+    if (addr) h.push(`<h2>📍 Address<a class="r small" href="#/add/address/${encodeURIComponent(key)}">＋ Add</a></h2><div class="card ${addr._pending ? "pend" : ""}"><div class="body" style="white-space:pre-wrap">${esc(addr.lines)}${addr._pending ? " " + pendBadge({_pending: 1}) : ""}</div>
       <div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm" href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭 Directions</a><button class="btn sm sec" data-copy="${esc((addr.lines || "").replace(/\n/g, ", "))}">⧉ Copy</button></div></div>`);
     if (c.vibe) h.push(`<h2>💬 Vibe</h2><div class="card">${esc(c.vibe)}</div>`);
     const qn = rows("quick_notes", key), cn = rows("competitor_notes", key).filter(x => x.content);
@@ -312,7 +360,7 @@ const TAB_RENDER = {
       <div class="ctiles"><div class="tile" style="background:#2563eb"><b>${esc(cm.total_quotes ?? qg.length)}</b><span>Quotes</span></div><div class="tile" style="background:#16a34a"><b>${esc(cm.win_rate ?? "—")}</b><span>Win rate</span></div>
         <div class="tile" style="background:#f59e0b;color:#111"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div><div class="tile" style="background:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
         <div class="tile" style="background:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>${v.reorder ? `<div class="tile" style="background:#6b7280"><b style="font-size:12px">${esc(v.reorder.text.replace(/^\S+\s/, ""))}</b><span>Film reorder</span></div>` : ""}</div>
-      <h2>Quotes <span class="r small">${qg.length}</span></h2><div class="list">${qg.map(g => groupHtml(g, false)).join("") || '<div class="empty">No quotes.</div>'}</div>
+      <h2>Quotes <span class="r small">${qg.length}</span></h2><div class="list">${qg.map(g => groupHtml(g, false, key)).join("") || '<div class="empty">No quotes.</div>'}</div>
       <h2>Orders <span class="r small">${og.length}</span></h2><div class="list">${og.map(g => groupHtml(g, true)).join("") || '<div class="empty">No orders.</div>'}</div>
       ${callOffsHtml(key)}`;
   },
@@ -361,7 +409,7 @@ function quickAddSheet(key) {
   const k = encodeURIComponent(key), c = IDX.co.get(key);
   const items = [["📝","Note","#4f46e5",`#/add/note/${k}`],["📞","Log call","#0891b2",`#/call/${k}`],["✅","Action","#16a34a",`#/add/action/${k}`],["🤝","Visit","#2563eb",`#/add/meeting/${k}`],
     ["📷","Photo","#db2777",`photo`],["💷","Quote","#f59e0b",`#/add/quote/${k}`],["🛒","Order","#0d9488",`#/add/order/${k}`],["✍️","Sign-off","#7c3aed",`#/sign/${k}`],
-    ["👤","Contact","#64748b",`#/add/contact/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
+    ["👤","Contact","#64748b",`#/add/contact/${k}`],["📍","Address","#ea580c",`#/add/address/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
   openSheet(`<b style="font-size:17px">${esc(c ? c.name : "")}</b><div class="sgrid" style="margin-top:14px">${items.map(([i, l, col, href]) =>
     href === "reorder" ? `<button data-ro="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div>`, el => {
     el.querySelector("[data-ph]").onclick = () => { closeSheet(); takePhoto(key); };
@@ -515,7 +563,8 @@ route(/^#\/sync$/, () => {
       <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
       <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 8 · data stays on this phone.</p></div>`;
+      <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 11 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };

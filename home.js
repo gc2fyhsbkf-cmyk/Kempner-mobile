@@ -24,6 +24,7 @@ route(/^#\/home$/, () => {
   const first = (card.name || META.user || (SNAP && SNAP.current_user) || "").split(" ")[0];
   let due = 0, over = 0;
   if (SNAP || PENDING.length) for (const c of scope()) for (const a of openActions(c._key)) { if (!a.date) continue; const dd = dayDiff(a.date); if (dd < 0) over++; else if (dd === 0) due++; }
+  const pins = (SNAP || PENDING.length) ? scope().flatMap(c => openActions(c._key).filter(a => a.pinned)) : [];
   const nx = SNAP || PENDING.length ? upNext() : null, nc = nx && IDX.co.get(nx.key);
   const mc = nc ? mainContact(nx.key) : null, addr = nc ? rows("addresses", nx.key)[0] : null;
   const tiles = [["📝", "Note", "#4f46e5", "note"], ["📞", "Log call", "#0891b2", "call"], ["✅", "Action", "#16a34a", "action"],
@@ -46,8 +47,10 @@ route(/^#\/home$/, () => {
     <div class="sgrid">${tiles.map(([i, l, col, k]) => k.startsWith("#") ? `<a href="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`
       : `<button data-q="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</button>`).join("")}</div>
     <div class="list" style="margin-top:14px">
+      ${(n => n ? `<a class="row" href="#/"><span style="font-size:22px">📌</span><div class="m"><div class="t">${n} pinned action${n === 1 ? "" : "s"}</div><div class="s">${esc(pins.slice(0, 2).map(x => x.note).join(" · "))}</div></div><span class="chev">›</span></a>` : "")(pins.length)}
       <a class="row" href="#/"><span style="font-size:22px">📋</span><div class="m"><div class="t">Today</div><div class="s ${over ? "alert" : ""}">${over ? `${over} overdue · ` : ""}${due} due today</div></div><span class="chev">›</span></a>
       <a class="row" href="#/plan"><span style="font-size:22px">🗓</span><div class="m"><div class="t">My day & route</div><div class="s">${((typeof ROAD !== "undefined" && ROAD.plans[localDate()]) || []).length} stops planned</div></div><span class="chev">›</span></a>
+      ${(SNAP || PENDING.length) ? (n => n ? `<a class="row" href="#/health"><span style="font-size:22px">🩺</span><div class="m"><div class="t">Missing info</div><div class="s">${n} customer${n === 1 ? "" : "s"} missing a postcode, contact, number or email</div></div><span class="chev">›</span></a>` : "")(gapList().length) : ""}
       ${PENDING.length ? `<a class="row" href="#/sync"><span style="font-size:22px">⬆️</span><div class="m"><div class="t">${PENDING.length} waiting to send</div><div class="s">Export to the CRM when you're back</div></div><span class="chev">›</span></a>` : ""}
     </div>`;
   const q = $("#hq"); q.onkeydown = e => { if (e.key === "Enter") { coQuery = q.value; coLimit = 80; go("#/companies"); } };
@@ -62,4 +65,34 @@ route(/^#\/home$/, () => {
         el.querySelector("[data-pk1]").onclick = () => pick(nx.key); el.querySelector("#other").onclick = () => pickCompany(title, pick); });
     else pickCompany(title, pick);
   });
+});
+
+// ---------- 🩺 MISSING INFO — the phone's version of the CRM's data health check ----------
+// Lobby leads are left out (they're allowed to be bare). Anything you add here goes to the CRM at the next sync.
+const GAP_KINDS = [["postcode", "📍", "No postcode", "Address"], ["contact", "👤", "No contact", "Contact"], ["number", "📞", "No phone number", "Number"], ["email", "✉️", "No email", "Email"]];
+function companyGaps(c) {
+  const k = c._key, ppl = people(k), g = [];
+  if (!companyPostcode(k)) g.push("postcode");
+  if (!ppl.length) g.push("contact");
+  else { if (!ppl.some(p => p.numbers.some(n => dialable(n.number)))) g.push("number"); if (!ppl.some(p => p.emails.length)) g.push("email"); }
+  return g;
+}
+function gapList() { return scope().filter(c => !isQuiet(c)).map(c => ({c, g: companyGaps(c)})).filter(x => x.g.length); }
+let gapFilter = "";
+route(/^#\/health$/, () => {
+  setHeader("Missing info", "#/home", "home");
+  const v = $("#view");
+  if (!SNAP && !PENDING.length) { v.innerHTML = welcomeCard(); return; }
+  const all = gapList(), count = k => all.filter(x => x.g.includes(k)).length;
+  const list = (gapFilter ? all.filter(x => x.g.includes(gapFilter)) : all).sort((a, b) => b.g.length - a.g.length || a.c.name.localeCompare(b.c.name));
+  const fix = (c, kind) => { const k = encodeURIComponent(c._key), mc = mainContact(c._key);
+    return kind === "postcode" ? `#/add/address/${k}` : kind === "contact" ? `#/add/contact/${k}` : `#/add/contact/${k}${mc ? "?name=" + encodeURIComponent(mc.name) : ""}`; };
+  v.innerHTML = `<div class="small" style="margin:2px 4px 8px">${all.length ? `${all.length} of your ${META.filter === "all" ? "" : "own "}customers are missing something. Postcodes matter most: Nearby, routes and mileage use them. Lobby leads aren't included.` : "✓ Every customer has a postcode, a contact, a number and an email."}</div>
+    <div class="scrollx" style="padding-top:0"><button class="fchip ${gapFilter ? "" : "on"}" data-gf="">All ${all.length}</button>${GAP_KINDS.map(([k, i, l]) => `<button class="fchip ${gapFilter === k ? "on" : ""}" data-gf="${k}">${i} ${l} ${count(k)}</button>`).join("")}</div>
+    <div class="list" style="margin-top:8px">${list.slice(0, 150).map(({c, g}) => `<div class="row"><a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t">${esc(c.name)}</div>
+        <div class="s">${g.map(k => GAP_KINDS.find(x => x[0] === k)).map(x => x[1] + " " + x[2].replace(/^No /, "no ")).join(" · ")}</div></a>
+        <a class="btn sm" href="${fix(c, gapFilter || g[0])}" style="flex:none">＋ ${GAP_KINDS.find(x => x[0] === (gapFilter || g[0]))[3]}</a></div>`).join("") || '<div class="empty">Nothing missing here.</div>'}</div>
+    ${list.length > 150 ? `<div class="small" style="text-align:center;margin:8px">Showing the first 150 of ${list.length}.</div>` : ""}
+    <p class="small" style="margin:10px 4px">For duplicates and untagged products, use 🩺 Data health on the PC.</p>`;
+  v.querySelectorAll("[data-gf]").forEach(b => b.onclick = () => { gapFilter = b.dataset.gf; render(); });
 });

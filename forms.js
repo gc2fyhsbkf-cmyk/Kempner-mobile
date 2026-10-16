@@ -166,10 +166,10 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
 });
 
 // ---------- CONTACT / COMPANY ----------
-route(/^#\/add\/contact\/(.+)$/, key => {
+route(/^#\/add\/contact\/([^?]+)(?:\?name=(.*))?$/, (key, preName) => {
   const c = mustCo(key); if (!c) return;
   form("Contact · " + c.name, "#/c/" + key, `
-    <label class="f">Name</label><input class="f" name="name" required autocapitalize="words">
+    <label class="f">Name</label><input class="f" name="name" required autocapitalize="words" value="${esc(preName || "")}">
     <label class="f">Role / job title</label><input class="f" name="role" list="roles"><datalist id="roles"><option value="Decision maker"><option value="Influencer"><option value="Gatekeeper"><option value="User"></datalist>
     <div class="two"><div><label class="f">Mobile</label><input class="f" type="tel" name="mobile"></div><div><label class="f">Other phone</label><input class="f" type="tel" name="phone2"></div></div>
     <label class="f">Email</label><input class="f" type="email" name="email" autocapitalize="off">
@@ -178,6 +178,44 @@ route(/^#\/add\/contact\/(.+)$/, key => {
       const nums = []; if (fd.mobile) nums.push({number: fd.mobile, tag: "mobile"}); if (fd.phone2) nums.push({number: fd.phone2, tag: ""});
       await addEvent("contact_new", key, {name: fd.name, role: fd.role || "", numbers: nums, emails: fd.email ? [fd.email] : []}); });
 });
+// ---------- ADDRESS ----------
+const PC_FULL = /^([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})$/i;
+route(/^#\/add\/address\/(.+)$/, key => {
+  const c = mustCo(key); if (!c) return;
+  const has = rows("addresses", key).length;
+  form("Address · " + c.name, "#/c/" + key, `
+    ${has ? `<div class="banner soft" style="display:block;font-weight:500">They already have ${has === 1 ? "an address" : has + " addresses"} on file. This adds another; the CRM keeps both so you can tidy up there.</div>` : ""}
+    <button type="button" class="btn block sec" id="hereBtn">📍 I'm here — fill in from my location</button>
+    <div class="small" id="hereMsg" style="margin-top:4px"></div>
+    <label class="f">Label</label><select class="f" name="label"><option>Main</option><option>Site</option><option>Warehouse</option><option>Delivery</option><option>Invoice</option><option>Head office</option></select>
+    <label class="f">Address line 1</label><input class="f" name="line1" autocapitalize="words">
+    <label class="f">Address line 2</label><input class="f" name="line2" autocapitalize="words">
+    <div class="two"><div><label class="f">Town / city</label><input class="f" name="city" autocapitalize="words"></div><div><label class="f">County</label><input class="f" name="county" autocapitalize="words"></div></div>
+    <label class="f">Postcode</label><input class="f" name="postcode" autocapitalize="characters" placeholder="e.g. LS11 5PS">`, "Save address",
+    async fd => {
+      const pc = (fd.postcode || "").toUpperCase().replace(/\s+/g, " ").trim(), m = PC_FULL.exec(pc.replace(/\s/g, ""));
+      const postcode = m ? (m[1] + " " + m[2]).toUpperCase() : pc;
+      if (!fd.line1 && !fd.city && !postcode) throw new Error("add at least a line, town or postcode");
+      if (postcode && !m && !confirm(`"${postcode}" doesn't look like a UK postcode. Save it anyway?`)) return false;
+      const lines = [fd.line1, fd.line2, fd.city, fd.county, postcode].filter(Boolean).join("\n");
+      await addEvent("address_new", key, {label: fd.label || "Main", line1: fd.line1 || "", line2: fd.line2 || "", city: fd.city || "", county: fd.county || "", postcode, lines});
+      if (postcode && typeof ensureGeo === "function") ensureGeo([postcode], true);
+    }, "companies");
+  $("#hereBtn").onclick = () => {
+    const msg = $("#hereMsg"); msg.textContent = "Finding where you are…";
+    navigator.geolocation.getCurrentPosition(async pos => {
+      try {
+        const r = await fetch(`https://api.postcodes.io/postcodes?lon=${pos.coords.longitude}&lat=${pos.coords.latitude}&limit=1&radius=300`), j = await r.json(), x = j.result && j.result[0];
+        if (!x) { msg.textContent = "No postcode found right here — type it in."; return; }
+        const f = $("#frm"); f.postcode.value = x.postcode; if (!f.city.value) f.city.value = x.admin_district || x.parish || "";
+        if (!f.county.value && x.admin_county) f.county.value = x.admin_county;
+        msg.textContent = `✓ ${x.postcode} (nearest postcode, about ${Math.round(x.distance || 0)} m away) — add the street yourself.`;
+      } catch (e) { msg.textContent = "Couldn't look it up (no signal?) — type it in."; }
+    }, err => { msg.textContent = err.code === 1 ? "Location is off for this app (Settings → Privacy → Location Services → Safari Websites)." : "Couldn't get your location."; },
+    {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000});
+  };
+});
+
 route(/^#\/newco$/, () => {
   form("New company", "#/companies", `
     <label class="f">Company name</label><input class="f" name="name" id="coName" required autocapitalize="words"><div id="dupe"></div>
@@ -307,6 +345,9 @@ function initLineEd(key, mode, onChange) {
     d.querySelector(".x").onclick = () => { if (host.children.length > 1) { d.remove(); update(); } else { d.querySelector(".chg").click(); price.value = ""; } };
     d.querySelectorAll("[data-f]").forEach(i => i.addEventListener("input", update));
     d._get = () => st.chosen;
+    d._set = (ln) => { const p = (ln.product_id && catalogue().find(x => x.id === String(ln.product_id))) || productByName(ln.description);
+      st.sec = ln.section === "Machines" ? "Machines" : (p ? p.section : "Film"); choose(p, ln.description, ln.price);
+      d.querySelector("[data-f=qty]").value = ln.quantity; if (ln.price != null) price.value = ln.price; update(); };
     drawQF();
     return d;
   };
@@ -320,10 +361,26 @@ function initLineEd(key, mode, onChange) {
       <div><span>VAT</span><span>${gbp(c.vat_amount)}</span></div><div class="gt"><span>Total</span><span>${gbp(c.grand_total)}</span></div>`;
     if (onChange) onChange(); }
   add();
+  // pre-fill (e.g. converting a quote): every line with its product, quantity and agreed price
+  const load = (lines, vatRate, shipping) => {
+    lines.forEach((ln, i) => { const d = i === 0 ? host.children[0] : add(); d._set(ln); });
+    if (vatRate != null) $("#vatPct").value = num(vatRate * 100); if (shipping != null) $("#ship").value = shipping; update(); };
   $("#addLine").onclick = () => { add().scrollIntoView({behavior: "smooth", block: "center"}); };
   ["vatPct", "ship"].forEach(id => $("#" + id).addEventListener("input", update));
   update();
-  return {read, vat, ship, calc};
+  return {read, vat, ship, calc, load};
+}
+// A quote by its key: a CRM quote's group_key, or "ev:<id>" for one made on this phone and not synced yet.
+function findQuote(key, qk) {
+  if (String(qk).startsWith("ev:")) return pendingGroups(key, "quote_new").find(g => g._pending.id === qk.slice(3)) || null;
+  return ((view(key) || {}).quote_groups || []).find(g => String(g.group_key) === String(qk)) || null;
+}
+const quoteKeyOf = g => g._pending ? "ev:" + g._pending.id : String(g.group_key || "");
+function quoteConverted(key, g) {
+  const qk = quoteKeyOf(g);
+  return String(g.status || "").toLowerCase() === "won"
+    || ((view(key) || {}).order_groups || []).some(o => o.quote_id && String(o.quote_id) === String(g.group_key))
+    || pend(key, "order_new").some(e => e.data.from_quote && e.data.from_quote.key === qk);
 }
 route(/^#\/add\/quote\/(.+)$/, key => {
   const c = mustCo(key); if (!c) return; let ed;
@@ -343,16 +400,25 @@ route(/^#\/add\/quote\/(.+)$/, key => {
       if (fd.chase && fd.follow_up_date) await addEvent("action_new", key, {date: fd.follow_up_date, time: "", note: `Chase quote – ${ls.map(l => `${num(l.quantity)}× ${l.description}`).join(", ")} (${gbp(t.grand_total)})`, tier: 2, channel: "call"}); });
   ed = initLineEd(key, "quote");
 });
-route(/^#\/add\/order\/(.+)$/, key => {
+route(/^#\/add\/order\/([^?]+)(?:\?from=(.+))?$/, (key, fromQ) => {
   const c = mustCo(key); if (!c) return; let ed;
-  form("Order · " + c.name, "#/c/" + key + "/commercial", `
+  const q = fromQ ? findQuote(key, fromQ) : null;
+  if (fromQ && !q) toast("That quote isn't on the phone any more — starting a blank order");
+  const qLabel = q ? (q.quote_number ? `quote ${q.quote_number}` : `the quote of ${niceDate(q.date)}`) : "";
+  form((q ? "Quote → order · " : "Order · ") + c.name, "#/c/" + key + "/commercial", `
+    ${q ? `<div class="banner soft" style="display:block;font-weight:500">🔁 Converting ${esc(qLabel)} — every item, quantity and agreed price is copied in. Change anything they've altered (e.g. fewer rolls).</div>` : ""}
     <label class="f">Order date</label><input class="f" type="date" name="order_date" value="${localDate()}">
     ${lineEdHtml()}
-    <label class="f">Notes</label><textarea class="f" name="notes" style="min-height:70px" placeholder="e.g. PO number, delivery details"></textarea>`, "Save order",
+    <label class="f">PO number / notes</label><textarea class="f" name="notes" style="min-height:70px" placeholder="e.g. PO 12345, deliver to the back gate"></textarea>
+    ${q ? '<label class="check"><input type="checkbox" name="won" checked> Mark the quote as Won</label>' : ""}`, "Save order",
     async fd => { const ls = ed.read(); if (!ls.length) throw new Error("add at least one item");
-      await addEvent("order_new", key, {order_date: fd.order_date || localDate(), notes: fd.notes || "", vat_rate: ed.vat(), shipping_cost: ed.ship(),
+      const notes = [fd.notes || "", q ? `Converted from ${qLabel}` : ""].filter(Boolean).join(" · ");
+      await addEvent("order_new", key, {order_date: fd.order_date || localDate(), notes, vat_rate: ed.vat(), shipping_cost: ed.ship(),
+        from_quote: q ? {key: fromQ, group_key: q._pending ? null : q.group_key, event_id: q._pending ? q._pending.id : null, quote_number: q.quote_number || "", mark_won: !!fd.won} : null,
         lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, unit_price: l.price}))}); });
   ed = initLineEd(key, "order");
+  if (q) ed.load((q.lines || []).map(l => ({product_id: l.product_id, description: l.description || l.product_name, section: l.section,
+    quantity: l.quantity, price: +(l.agreed_price || l.quoted_price || 0)})), q.vat_rate, q.shipping_cost || 0);
 });
 
 // ---------- SIGN-OFF SHEETS ----------

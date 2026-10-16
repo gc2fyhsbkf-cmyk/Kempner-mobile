@@ -113,17 +113,21 @@ function buildIndex() {
   const t = (SNAP && SNAP.tables) || {};
   IDX = { co: new Map(), by: {}, person: {}, drawdowns: groupBy(t.call_off_drawdowns, "agreement_id"),
           users: new Map(((SNAP && SNAP.users) || []).map(u => [String(u.id), u.name])),
-          products: (SNAP && SNAP.products) || {}, pend: new Map(), doneIds: new Map(), moved: new Map(), hay: new Map(),
+          products: (SNAP && SNAP.products) || {}, pend: new Map(), doneIds: new Map(), moved: new Map(), pins: new Map(), hay: new Map(),
           files: groupBy((SNAP && SNAP.attachments) || [], "company_id") };
   for (const c of t.companies || []) IDX.co.set(String(c.id), Object.assign({}, c, {_key: String(c.id)}));
   for (const n of CO_TABLES) IDX.by[n] = groupBy(t[n], "company_id");
   for (const n of ["phone_numbers","person_emails","person_dates"]) IDX.person[n] = groupBy(t[n], "person_id");
   for (const ev of PENDING) if (ev.type === "company_new") { const k = evCoKey(ev);
     if (!IDX.co.has(k)) IDX.co.set(k, {_key: k, id: null, name: ev.data.name, status: "NONE", pipeline_stage: "Prospect", region: "", segment: ev.data.segment || "", _pending: true, updated_at: ev.created_at}); }
+  // addresses added on the phone count straight away (postcodes for Nearby, routes and mileage)
+  for (const ev of PENDING) if (ev.type === "address_new") { const k = evCoKey(ev), m = IDX.by.addresses;
+    if (!m.has(k)) m.set(k, []); m.get(k).push(Object.assign({id: ev.id, company_id: k, _pending: ev}, ev.data)); }
   for (const ev of PENDING) { const k = evCoKey(ev);
     if (!IDX.pend.has(k)) IDX.pend.set(k, []); IDX.pend.get(k).push(ev);
     if (ev.type === "action_done") IDX.doneIds.set(ev.data.action_id, ev);
-    if (ev.type === "action_move") IDX.moved.set(ev.data.action_id, ev); }
+    if (ev.type === "action_move") IDX.moved.set(ev.data.action_id, ev);
+    if (ev.type === "action_pin") IDX.pins.set(ev.data.action_id, ev); }
 }
 const rows = (table, key) => (IDX.by[table] && IDX.by[table].get(String(key))) || [];
 const pend = (key, type) => (IDX.pend.get(String(key)) || []).filter(e => !type || e.type === type);
@@ -161,7 +165,8 @@ function mainContact(key) {
 function actions(key) {
   const out = rows("actions", key).map(a => { const d = IDX.doneIds.get(a.id), m = IDX.moved.get(a.id);
     if (d) return Object.assign({}, a, {status: "DONE", _doneEv: d});
-    return m ? Object.assign({}, a, {date: m.data.date, time: m.data.time ?? a.time, _moved: m}) : a; });
+    const pn = IDX.pins.get(a.id), x = pn ? Object.assign({}, a, {pinned: pn.data.pinned ? 1 : 0, _pinEv: pn}) : a;
+    return m ? Object.assign({}, x, {date: m.data.date, time: m.data.time ?? a.time, _moved: m}) : x; });
   for (const ev of pend(key, "action_new")) { const id = phoneActionId(ev), d = IDX.doneIds.get(id);
     out.push(Object.assign({}, ev.data, {id, company_id: key, status: d ? "DONE" : "OPEN", _pending: ev, _doneEv: d})); }
   return out;
@@ -239,6 +244,8 @@ function describe(e) {
   switch (e.type) {
     case "note": return "📝 " + (d.reference === "Phone call" ? "Call: " : "") + d.content;
     case "action_new": return `✅ ${d.note} (${niceDate(d.date)})`;
+    case "address_new": return `📍 Address: ${d.lines.replace(/\n/g, ", ")}`;
+    case "action_pin": return `${d.pinned ? "📌 Pinned" : "Unpinned"}: ${d.action_note}`;
     case "action_move": return `⏭ Moved to ${niceDate(d.date)}${d.time ? " " + d.time : ""}: ${d.action_note}${d.reason ? " (" + d.reason + ")" : ""}`;
     case "action_done": return `☑️ Done: ${d.action_note}${d.outcome ? " → " + d.outcome : ""}`;
     case "meeting": return `🤝 ${d.status === "DONE" ? "Visit" : "Booked"} ${niceDate(d.date)}: ${d.notes || d.location || ""}`;

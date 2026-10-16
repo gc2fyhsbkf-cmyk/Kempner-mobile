@@ -41,12 +41,19 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - after you call from the app, it asks how it went
   - uses the same "Asked / noted" questions as Live Call
   - you can add a follow-up action.
+- **Today** keeps busy action lists calm:
+  - **📌 Pinned** actions are shown in full at the top, whatever their date. Pin them on the PC before you head out, or on the phone (⏭ → Pin it); a pin made on the phone goes to the PC too
+  - everything else sits under **Other actions**, with tabs for Overdue, Today, This week and All
+  - each action is a compact one-line row, grouped by customer, with the first 8 shown and "Show all" for the rest
+  - **⏭ Move all overdue** pushes the overdue ones to tomorrow, next Monday or next week, unticking any you want to leave
 - **Actions** with quick dates and priorities. **✓** marks one done and records the outcome, with a "same again next week" option. **⏭** moves it to tomorrow, next Monday, next week and so on, or a date you pick, with an optional reason. It's moved in the CRM at the next sync.
 - **Visits / meetings** by type (film trial, commission, service, machine demo, check-up).
   - Films and machines you saw are added to the equipment list.
   - A meeting already booked in the CRM can be logged as done.
+- **Addresses**: on a company's Overview, or ＋ Add → 📍 Address. **📍 I'm here** fills in the postcode and town from where you're standing; you add the street. The CRM adds it alongside any existing address, never replacing one.
 - **Photos** are attached to the company in the CRM, with a note.
 - **Quotes** and **orders** use your product catalogue and the price that customer last paid, with VAT and shipping totals. A quote can also add a "chase quote" action.
+- **🛒 Convert to order** on any open quote (on the Commercial tab) copies every item, quantity and agreed price into a new order. Change what they've altered, add the PO number, and it marks the quote Won. In the CRM the order is linked to the quote, just like the PC's own Convert to order.
 - **Sign-off sheets**: a PDF on the Kempner letterhead with the customer's finger signature. There are five kinds:
   - goods left on site
   - delivery note
@@ -54,6 +61,9 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - collection
   - work completed.
 - **📅 Add to Calendar** on meetings and actions puts them in the iPhone Calendar with a reminder.
+
+## 🩺 Missing info
+- From Home (or Sync → Settings): your customers missing a postcode, a contact, a phone number or an email, with a button to fix each one there and then. Lobby leads are left out. Duplicates and untagged products stay on the PC's Data health.
 
 ## Your business card
 - **🪪 My card** (top right of Today, or Sync → Settings) is your card on the Kempner letterhead. Tap it to turn it over to the QR code. Scanning it opens your **digital card** (card.html) on their phone: they see the card, then **Save to my contacts**, which saves you with the card as your contact photo and a note saying where you're from, or save the card to their Photos. If they'll have no signal, switch the QR to plain contact in Edit my details. People scan it with their camera to save your details. **Send my contact card** shares it as a contact file by AirDrop or text. Set your details once and they stay on the phone.
