@@ -92,7 +92,7 @@ route(/^#\/add\/action\/(.+)$/, key => {
   const quick = [["Tomorrow", nextWorkday(1)], ["+3 days", nextWorkday(3)], ["+1 week", nextWorkday(7)], ["+2 weeks", nextWorkday(14)], ["+1 month", nextWorkday(30)]];
   form("Action · " + c.name, "#/c/" + key, `${pplList(key)}
     <label class="f">What needs doing?</label><textarea class="f" name="note" required style="min-height:80px" placeholder="e.g. Call about film order"></textarea>
-    <div class="scrollx" style="padding-top:8px">${["Check in", "Call about film", "Send quote", "Chase PO", "Book visit", "Keep in touch"].map(t => `<button type="button" class="fchip" data-tpl="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <div class="scrollx" style="padding-top:8px">${["Check in", "Call about film", "Send quote", "Chase PO", "Book visit", "Keep in touch", "🔧 Annual service due"].map(t => `<button type="button" class="fchip" data-tpl="${esc(t)}">${esc(t)}</button>`).join("")}</div>
     <label class="f">When</label><div class="scrollx" style="padding-top:0">${quick.map(([l, d]) => `<button type="button" class="fchip ${d === quick[0][1] ? "on" : ""}" data-date="${d}">${l}</button>`).join("")}</div>
     <div class="two"><div><label class="f">Date</label><input class="f" type="date" name="date" value="${quick[0][1]}" required></div><div><label class="f">Time (optional)</label><input class="f" type="time" name="time"></div></div>
     <label class="f">Priority</label>${opt("tier", [[1, "⭐ Today"], [2, "Soon"], [3, "Reminder"]], 2)}
@@ -101,7 +101,9 @@ route(/^#\/add\/action\/(.+)$/, key => {
     async fd => { if (!fd.note) throw new Error("say what needs doing");
       await addEvent("action_new", key, {date: fd.date, time: fd.time || "", note: fd.note, tier: +fd.tier || 2, channel: fd.channel || "", contact_person: fd.contact_person || ""}); });
   const frm = $("#frm");
-  frm.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => { frm.note.value = b.dataset.tpl; });
+  frm.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => { frm.note.value = b.dataset.tpl;
+    if (/Annual service/.test(b.dataset.tpl) && frm.date) { const d = new Date(); d.setFullYear(d.getFullYear() + 1); frm.date.value = localDate(d);
+      frm.querySelectorAll("[data-date]").forEach(x => x.classList.remove("on")); } });
   frm.querySelectorAll("[data-date]").forEach(b => b.onclick = () => { frm.date.value = b.dataset.date; frm.querySelectorAll("[data-date]").forEach(x => x.classList.toggle("on", x === b)); });
 });
 route(/^#\/done\/([^/]+)\/(.+)$/, (key, aid) => {
@@ -147,6 +149,7 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
       <label class="f">Films seen (comma separated)</label><input class="f" name="films_seen" placeholder="e.g. 19µm POF, competitor 15µm">
       <label class="f">Machines seen (comma separated)</label><input class="f" name="machines_seen">
       <label class="check"><input type="checkbox" name="add_to_equipment" checked> Add them to the company's equipment</label></details>
+    <label class="check" id="svcRow"><input type="checkbox" name="annual" checked> 🔧 Add an "annual service due" action for this time next year</label>
     <label class="check"><input type="checkbox" name="follow" id="follow"> Add a follow-up action</label>
     <div id="fu" class="hidden"><div class="two"><div><label class="f">Follow-up</label><input class="f" name="fu_note"></div><div><label class="f">When</label><input class="f" type="date" name="fu_date" value="${nextWorkday(7)}"></div></div></div>
     <label class="check"><input type="checkbox" name="photo_after"> 📷 Take a photo after saving</label>`,
@@ -157,11 +160,16 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
         status: fd.status || "DONE", meeting_type: fd.meeting_type || "", films_seen: fd.films_seen || "", machines_seen: fd.machines_seen || "", add_to_equipment: !!fd.add_to_equipment};
       if (orig) d.completes_meeting_id = orig.id;
       await addEvent("meeting", key, d);
+      if (fd.meeting_type === "service" && (fd.status || "DONE") === "DONE" && fd.annual) {
+        const nd = new Date((fd.date || localDate()) + "T12:00:00"); nd.setFullYear(nd.getFullYear() + 1);
+        await addEvent("action_new", key, {date: localDate(nd), time: "", note: `🔧 Annual service due${fd.machines_seen ? " – " + fd.machines_seen : ""}`, tier: 2, channel: "visit", contact_person: fd.contacts || ""});
+      }
       if (fd.follow && fd.fu_note) await addEvent("action_new", key, {date: fd.fu_date || nextWorkday(7), time: "", note: fd.fu_note, tier: 2, channel: "", contact_person: fd.contacts || ""});
       if (fd.photo_after) { toast("Saved ✓"); history.back(); setTimeout(() => takePhoto(key), 350); return false; }
     });
   const drawQs = () => { const t = $("#mtype").value; $("#typeQs").innerHTML = (MEETING_PROMPTS[t] || []).map((q, i) => `<label class="f">${esc(q)}</label><input class="f" name="q_${i}">`).join(""); };
-  $("#mtype").onchange = drawQs; drawQs();
+  const svc = () => $("#svcRow").classList.toggle("hidden", $("#mtype").value !== "service");
+  $("#mtype").onchange = () => { drawQs(); svc(); }; drawQs(); svc();
   $("#follow").onchange = e => $("#fu").classList.toggle("hidden", !e.target.checked);
 });
 

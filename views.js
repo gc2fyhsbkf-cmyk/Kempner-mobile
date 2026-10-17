@@ -219,8 +219,13 @@ function coBody() {
   if (coStatus) list = list.filter(c => companyStatus(c) === coStatus);
   const q = coQuery.trim().toLowerCase();
   if (!q) list = list.filter(c => segOf(c) === (META.seg || ""));  // a search looks across every tab
-  if (q) { const qd = digits(q), terms = q.split(/\s+/);
-    list = list.filter(c => { const h = haystack(c); return terms.every(t => h.includes(t)) || (qd.length >= 4 && h.includes(qd)); }); }
+  let noteHits = new Map();
+  if (q) { const qd = digits(q), terms = q.split(/\s+/), all = list;
+    list = all.filter(c => { const h = haystack(c); return terms.every(t => h.includes(t)) || (qd.length >= 4 && h.includes(qd)); });
+    // …and inside their notes (3+ letters), shown underneath with the matching bit
+    if (q.length >= 3) { const named = new Set(list.map(c => c._key));
+      for (const c of all) { if (named.has(c._key)) continue; const hit = notes(c._key).find(n => terms.every(t => String(n.content || "").toLowerCase().includes(t)));
+        if (hit) noteHits.set(c._key, {c, n: hit}); if (noteHits.size >= 40) break; } } }
   const overdue = c => openActions(c._key).filter(a => a.date && dayDiff(a.date) < 0).length;
   const sorters = {
     az: (a, b) => (b.pinned || 0) - (a.pinned || 0) || a.name.localeCompare(b.name),
@@ -230,8 +235,12 @@ function coBody() {
   };
   list.sort(q ? ((a, b) => (b.name.toLowerCase().startsWith(q)) - (a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)) : (sorters[META.sort] || sorters.az));
   const lobbyHint = !q && META.seg === LOBBY ? `<div class="small" style="margin:6px 4px">Leads to try. No reminders or health scores here; open one and tap <b>⬆ Promote</b> once they're a real customer.</div>` : "";
+  const snip = (txt, t) => { const s = String(txt || ""), i = s.toLowerCase().indexOf(t); const a = Math.max(0, i - 30);
+    return (a ? "…" : "") + esc(s.slice(a, i)) + "<b>" + esc(s.slice(i, i + t.length)) + "</b>" + esc(s.slice(i + t.length, i + t.length + 50)) + "…"; };
   $("#coBody").innerHTML = `${lobbyHint}<h2>${list.length} ${list.length === 1 ? "company" : "companies"}</h2>
-    <div class="list">${list.slice(0, coLimit).map(c => coRow(c)).join("") || '<div class="empty">Nothing matches.</div>'}</div>
+    <div class="list">${list.slice(0, coLimit).map(c => coRow(c)).join("") || (noteHits.size ? "" : '<div class="empty">Nothing matches.</div>')}</div>
+    ${noteHits.size ? `<h2>📝 In their notes <span class="r small">${noteHits.size}</span></h2><div class="list">${[...noteHits.values()].map(({c, n}) => `<a class="row" href="${coHref(c._key)}/notes"><div class="m"><div class="t">${esc(c.name)}</div>
+      <div class="s" style="white-space:normal">${niceDate(n.date)} · ${snip(n.content, q.split(/\s+/)[0])}</div></div><span class="chev">›</span></a>`).join("")}</div>` : ""}
     ${list.length > coLimit ? `<button class="btn sec block" id="more">Show ${Math.min(200, list.length - coLimit)} more</button>` : ""}`;
   const m = $("#more"); if (m) m.onclick = () => { coLimit += 200; coBody(); };
 }
@@ -242,6 +251,7 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
   const c = IDX.co.get(key);
   if (!c) { toast("Company not found"); return go("#/companies"); }
   if (tabArg) coTab[key] = tabArg;
+  META.recent = [key].concat((META.recent || []).filter(k => k !== key)).slice(0, 8); saveMeta();
   const tab = coTab[key] || "overview";
   setHeader(c.name, "#/companies", "companies");
   const v = view(key) || {}, mc = mainContact(key), addr = rows("addresses", key)[0], st = companyStatus(c);
@@ -295,7 +305,7 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
 function notesHtml(list, n) {
   return list.slice(0, n).map(x => `<div class="item fl-${esc(x.status_prefix || "")} ${x._pending ? "pend" : ""}">
     <div class="meta"><b>${niceDate(x.date)}</b> ${esc(x.time || "")}${x.customer_name ? " · 👤 " + esc(x.customer_name) : ""}${x.reference ? ` <span class="chip" style="font-size:10.5px;padding:1px 7px">${esc(x.reference)}</span>` : ""} ${FLAG_EMOJI[x.status_prefix] || ""} ${pendBadge(x)}</div>
-    <div class="body">${esc(x.content)}</div>
+    <div class="body">${esc(x.content)}</div>${x._pending && x._pending.type === "note" ? `<button class="btn sm sec" data-editn="${esc(x._pending.id)}" style="margin-top:6px;font-size:12px;padding:4px 10px">✏️ Edit</button>` : ""}
     ${x._pdf ? `<button class="btn sm sec" style="margin-top:8px" data-pdf="${esc(x._pdf)}">📄 View / share PDF</button>` : ""}
     ${x._photo ? `<button class="btn sm sec" style="margin-top:8px" data-photo="${esc(x._photo)}">🖼 View photo</button>` : ""}</div>`).join("")
     + (list.length > n ? `<button class="btn sec block" id="moreNotes" style="margin:8px">Show all ${list.length} notes</button>` : "");
@@ -540,6 +550,33 @@ function calculators(host) {
   calc();
 }
 
+// ---------- ✏️ edit something before it's sent to the CRM ----------
+const EDITABLE = {
+  note: [["content", "Note", "area"]],
+  action_new: [["note", "Action", "text"], ["date", "Date", "date"], ["time", "Time", "time"]],
+  meeting: [["date", "Date", "date"], ["time", "Time", "time"], ["location", "Where", "text"], ["notes", "Notes", "area"]],
+  company_new: [["name", "Company name", "text"], ["contact_name", "Contact", "text"], ["phone", "Phone", "tel"], ["email", "Email", "email"]],
+  contact_new: [["name", "Name", "text"], ["role", "Role", "text"]],
+  address_new: [["line1", "Address line 1", "text"], ["line2", "Address line 2", "text"], ["city", "Town", "text"], ["postcode", "Postcode", "text"]],
+  quote_new: [["quote_number", "Quote no.", "text"], ["follow_up_date", "Chase on", "date"], ["notes", "Notes", "area"]],
+  order_new: [["order_date", "Order date", "date"], ["notes", "PO / notes", "area"]],
+  photo: [["caption", "Caption", "text"]],
+};
+function editEventSheet(id) {
+  const ev = PENDING.find(x => x.id === id), fields = ev && EDITABLE[ev.type]; if (!fields) return;
+  openSheet(`<b style="font-size:17px">✏️ Edit before sending</b><div class="small" style="margin:2px 0 8px">${esc(ev.company_name || "")}${["quote_new", "order_new"].includes(ev.type) ? " · to change the items, delete it and make it again" : ""}</div>
+    ${fields.map(([k, l, t]) => `<label class="f">${l}</label>${t === "area" ? `<textarea class="f" data-k="${k}" style="min-height:110px">${esc(ev.data[k] || "")}</textarea>` : `<input class="f" data-k="${k}" type="${t}" value="${esc(ev.data[k] || "")}">`}`).join("")}
+    <button class="btn block" id="evSave" style="margin-top:12px">Save changes</button>`, el => {
+    el.querySelector("#evSave").onclick = async () => {
+      el.querySelectorAll("[data-k]").forEach(i => { ev.data[i.dataset.k] = i.value.trim(); });
+      if (ev.type === "address_new") { ev.data.postcode = (ev.data.postcode || "").toUpperCase(); ev.data.lines = [ev.data.line1, ev.data.line2, ev.data.city, ev.data.county, ev.data.postcode].filter(Boolean).join("\n"); }
+      if (ev.type === "company_new") ev.company_name = ev.data.name;
+      await savePending(); closeSheet(); toast("Updated"); render(); };
+  });
+}
+// a pending note on a company's Notes tab can be tapped to edit it
+document.addEventListener("click", e => { const b = e.target.closest("[data-editn]"); if (b) { e.preventDefault(); editEventSheet(b.dataset.editn); } });
+
 // ---------- SYNC ----------
 route(/^#\/sync$/, () => {
   setHeader("Sync", null, "sync");
@@ -556,21 +593,27 @@ route(/^#\/sync$/, () => {
       <div class="small">Anything the CRM has already imported clears from the list below automatically; the rest stays.</div></div>
     <h2>Waiting to send <span class="r small">${PENDING.length}</span></h2>
     <div class="list">${PENDING.slice().reverse().map(e => `<div class="row"><div class="m"><div class="t" style="white-space:normal">${esc(describe(e))}</div>
-      <div class="s">${esc(e.company_name || "")} · ${esc(e.created_at.replace("T", " ").slice(0, 16))}</div></div><button class="btn sm sec" data-del="${esc(e.id)}" style="color:var(--red)">✕</button></div>`).join("") || '<div class="empty">Nothing.</div>'}</div>
+      <div class="s">${esc(e.company_name || "")} · ${esc(e.created_at.replace("T", " ").slice(0, 16))}</div></div>${EDITABLE[e.type] ? `<button class="btn sm sec" data-edit-ev="${esc(e.id)}" style="margin-right:4px">✏️</button>` : ""}<button class="btn sm sec" data-del="${esc(e.id)}" style="color:var(--red)">✕</button></div>`).join("") || '<div class="empty">Nothing.</div>'}</div>
     <h2>Settings</h2><div class="card">
       <label class="f">Who am I? (for "Mine")</label><select class="f" id="userSel"><option value="">${SNAP && SNAP.current_user ? esc(SNAP.current_user) + " (from CRM)" : "Not set – show everyone"}</option>${users.map(u => `<option ${META.user === u.name ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>
       <label class="f">Device name (shown on the PC when importing)</label><input class="f" id="devName" value="${esc(META.device || "")}" placeholder="e.g. Dan's iPhone">
       <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
       <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
+      <h2 style="margin-top:18px">💾 Backup & reminders</h2>
+      <p class="small" style="margin:0 0 6px">Your mileage, visits, day plans and card live only on this phone. Save a backup to Drive now and then; to restore, choose the backup file with 📥 Load snapshot.${META.lastBackup ? ` Last backup ${esc(ago(META.lastBackup))}.` : " No backup yet."}</p>
+      <button class="btn block sec" data-backup="1">💾 Back up this phone's data</button>
+      <button class="btn block sec" id="calRem" style="margin-top:8px">⏰ Weekday 5pm "send to CRM" reminder in my Calendar</button>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
       <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 14 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 15 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
   $("#devName").onchange = async e => { META.device = e.target.value.trim(); await saveMeta(); toast("Saved"); };
   $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
+  $("#calRem").onclick = calendarReminder;
   $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
+  $("#view").querySelectorAll("[data-edit-ev]").forEach(b => b.onclick = () => editEventSheet(b.dataset.editEv));
   $("#view").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const ev = PENDING.find(x => x.id === b.dataset.del);
     if (!ev || !confirm(`Delete this unsent item?\n\n${describe(ev).slice(0, 200)}`)) return;

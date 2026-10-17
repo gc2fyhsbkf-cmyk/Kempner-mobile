@@ -44,7 +44,8 @@ async function remapTempKeys() {
   for (const d of Object.keys(ROAD.plans)) { const nu = ROAD.plans[d].map(fix); if (nu.some((k, i) => k !== ROAD.plans[d][i])) { ROAD.plans[d] = [...new Set(nu)]; n++; } }
   if (n) { await saveRoad("visits"); await saveRoad("plans"); }
 }
-window.onSnapshotLoaded = async () => { await remapTempKeys(); const n = await mergePcPlans(); return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
+window.onSnapshotLoaded = async () => { await remapTempKeys(); const n = await mergePcPlans();
+  for (let i = 0; i < 14; i++) await mergeMeetingStops(addDays(i)); return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
 
 // ---------- visits (check-ins + logged visits) ----------
 function visitsOn(date) { return ROAD.visits.filter(v => v.date === date).sort((a, b) => (a.time || "").localeCompare(b.time || "")); }
@@ -173,7 +174,46 @@ function roadSeg(on) {
 }
 document.addEventListener("click", e => { const b = e.target.closest("[data-go]"); if (b) { e.preventDefault(); go(b.dataset.go); } });
 
+// snoozes made on the phone (until the CRM has them in a snapshot)
+function phoneSnoozes() { const out = {}; for (const e of PENDING) if (e.type === "visit_snooze" && (!e.data.until || e.data.until >= localDate())) out[evCoKey(e)] = e.data.until || ""; return out; }
 // ---------- PLAN MY DAY ----------
+// Meetings booked for a day (on the PC or the phone) become stops on that day's plan, with their time.
+function meetingsOn(d) {
+  const out = [];
+  for (const c of scope()) for (const m of meetings(c._key)) if (m.date === d && m.status !== "DONE") out.push({key: c._key, time: String(m.time || "").slice(0, 5), m});
+  return out.sort((a, b) => (a.time || "99").localeCompare(b.time || "99"));
+}
+const stopTime = (d, k, mts) => ((mts || meetingsOn(d)).find(x => x.key === k) || {}).time || "";
+async function mergeMeetingStops(d) {
+  ROAD.pc.mt = ROAD.pc.mt || {};
+  const seen = new Set(ROAD.pc.mt[d] || []), p = planFor(d), mts = meetingsOn(d); let n = 0;
+  for (const x of mts) { if (seen.has(x.key)) continue; seen.add(x.key); if (p.includes(x.key)) continue;
+    // slot it in by time among the timed stops already there
+    let at = p.length; if (x.time) { const i = p.findIndex(k => { const t = stopTime(d, k, mts); return t && t > x.time; }); if (i >= 0) at = i; }
+    p.splice(at, 0, x.key); n++; }
+  ROAD.pc.mt[d] = [...seen]; if (n) { await saveRoad("plans"); } await saveRoad("pc"); return n;
+}
+// ✨ Best order: three ways to sort a day. Miles are straight-line × 1.25 estimates (the same as Mileage without signal).
+const est = (a, b) => a && b ? miles(a, b) * 1.25 : 0;
+function pathMiles(start, seq, end) { let t = 0, cur = start; for (const x of seq) { if (cur) t += est(cur, x.g); cur = x.g; } if (end && cur) t += est(cur, end); return t; }
+function shortest(start, items, end) {
+  const left = items.slice(), out = []; let cur = start || (left[0] && left[0].g);
+  while (left.length) { let bi = 0; left.forEach((x, i) => { if (est(cur, x.g) < est(cur, left[bi].g)) bi = i; }); const nx = left.splice(bi, 1)[0]; out.push(nx); cur = nx.g; }
+  for (let improved = true, guard = 0; improved && guard < 50; guard++) { improved = false;   // 2-opt tidy-up
+    for (let i = 0; i < out.length - 1; i++) for (let j = i + 1; j < out.length; j++) {
+      const cand = out.slice(0, i).concat(out.slice(i, j + 1).reverse(), out.slice(j + 1));
+      if (pathMiles(start, cand, end) < pathMiles(start, out, end) - 0.01) { out.splice(0, out.length, ...cand); improved = true; } } }
+  return out;
+}
+function keepTimes(start, items, end) {
+  const route = items.filter(x => x.t).sort((a, b) => a.t.localeCompare(b.t)), free = items.filter(x => !x.t);
+  for (const x of free.sort((a, b) => est(start, a.g) - est(start, b.g))) {   // cheapest place to fit each untimed stop
+    let best = 0, bestCost = Infinity;
+    for (let i = 0; i <= route.length; i++) { const c = pathMiles(start, route.slice(0, i).concat([x], route.slice(i)), end); if (c < bestCost) { bestCost = c; best = i; } }
+    route.splice(best, 0, x); }
+  return route;
+}
+function lockFirst(start, items, end, first) { const rest = items.filter(x => x !== first); return [first].concat(shortest(first.g, rest, end)); }
 let planDate = null;
 function planFor(d) { return ROAD.plans[d] || (ROAD.plans[d] = []); }
 async function addToPlan(d, key) { const p = planFor(d); if (!p.includes(String(key))) p.push(String(key)); await saveRoad("plans"); }
@@ -186,7 +226,7 @@ function routeUrl(stops, start) {
 function suggestNear(stopsGeo, exclude) {
   if (!stopsGeo.length) return [];
   const mine = new Set(scope().map(c => c._key)), reasons = new Map();
-  const snz = (SNAP && SNAP.visit_snoozes) || {}, snoozed = k => String(k) in snz;  // snoozed on the PC's Plan visits
+  const snz = Object.assign({}, (SNAP && SNAP.visit_snoozes) || {}, phoneSnoozes()), snoozed = k => String(k) in snz;  // snoozed on the PC or here
   const add = (k, r) => { if (!mine.has(String(k)) || exclude.has(String(k)) || snoozed(k)) return; if (!reasons.has(String(k))) reasons.set(String(k), []); reasons.get(String(k)).push(r); };
   for (const r of (SNAP && SNAP.today && SNAP.today.reorder_digest) || []) add(r.company_id, r.state === "overdue" ? "film reorder overdue" : r.at_risk ? "reorder at risk" : "reorder due");
   for (const r of (SNAP && SNAP.today && SNAP.today.needs_attention) || []) add(r.company_id, (r.flags || []).includes("overdue_action") ? "dropped follow-up" : "needs a nudge");
@@ -203,9 +243,10 @@ function suggestNear(stopsGeo, exclude) {
 route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
   setHeader("On the road", null, "road");
   const d = planDate = dArg || planDate || localDate();
-  const keys = planFor(d).filter(k => IDX.co.get(k));
+  await mergeMeetingStops(d);
+  const keys = planFor(d).filter(k => IDX.co.get(k)), mts = meetingsOn(d);
   const stops = keys.map(k => { const c = IDX.co.get(k), pc = companyPostcode(k), a = rows("addresses", k)[0];
-    return {key: k, name: c.name, pc, geo: geoOf(pc), addr: a ? (a.lines || "").replace(/\n/g, ", ") : "", done: ROAD.visits.some(v => v.key === k && v.date === d)}; });
+    return {key: k, name: c.name, pc, geo: geoOf(pc), t: stopTime(d, k, mts), addr: a ? (a.lines || "").replace(/\n/g, ", ") : "", done: ROAD.visits.some(v => v.key === k && v.date === d)}; });
   const dayChip = (dd, l) => `<button class="fchip ${dd === d ? "on" : ""}" data-go="#/plan/${dd}">${l}</button>`;
   const start = homePc() && geoOf(homePc()) ? `${geoOf(homePc()).lat},${geoOf(homePc()).lon}` : "";
   const sugg = suggestNear(stops.filter(s => s.geo).map(s => s.geo), new Set(keys));
@@ -215,7 +256,7 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
     <h2>🗓 ${esc(niceDate(d))} — ${stops.length} stop${stops.length === 1 ? "" : "s"}${homePc() ? ` <span class="r small">from ${esc(homePc())}</span>` : ""}</h2>
     <div class="list" id="stops">${stops.map((s, i) => `<div class="row ${s.done ? "pend" : ""}">
         <div style="width:26px;height:26px;border-radius:50%;background:${s.done ? "var(--green)" : "var(--red)"};color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none">${s.done ? "✓" : i + 1}</div>
-        <a class="m" href="#/brief/${encodeURIComponent(s.key)}" style="color:inherit"><div class="t">${esc(s.name)}</div><div class="s">${fromPc(d, s.key) ? '<span class="chip c-blue" style="font-size:10.5px;padding:1px 6px;margin-right:6px">🖥 from PC</span>' : ""}${s.pc ? esc(s.pc) : "⚠ no postcode"}${i && s.geo && stops[i - 1].geo ? ` · ${miles(stops[i - 1].geo, s.geo).toFixed(1)} mi from last` : ""}${s.done ? " · checked in" : ""}</div>${pcNote(d, s.key) ? `<div class="s" style="white-space:normal">🗒 ${esc(pcNote(d, s.key))}</div>` : ""}</a>
+        <a class="m" href="#/brief/${encodeURIComponent(s.key)}" style="color:inherit"><div class="t">${esc(s.name)}</div><div class="s">${s.t ? `<span class="chip c-amber" style="font-size:10.5px;padding:1px 6px;margin-right:6px">⏰ ${esc(s.t)}</span>` : ""}${fromPc(d, s.key) ? '<span class="chip c-blue" style="font-size:10.5px;padding:1px 6px;margin-right:6px">🖥 from PC</span>' : ""}${s.pc ? esc(s.pc) : "⚠ no postcode"}${i && s.geo && stops[i - 1].geo ? ` · ${miles(stops[i - 1].geo, s.geo).toFixed(1)} mi from last` : ""}${s.done ? " · checked in" : ""}</div>${pcNote(d, s.key) ? `<div class="s" style="white-space:normal">🗒 ${esc(pcNote(d, s.key))}</div>` : ""}</a>
         <div style="display:flex;gap:4px">${s.done ? `<button class="btn sm sec" data-unci="${esc(s.key)}" title="Undo the check-in">↩</button>` : ""}<button class="btn sm sec" data-mv="${i}|-1" ${i ? "" : "disabled"}>↑</button><button class="btn sm sec" data-mv="${i}|1" ${i < stops.length - 1 ? "" : "disabled"}>↓</button><button class="btn sm sec" data-rm="${i}" style="color:var(--red)">✕</button></div></div>`).join("")
       || '<div class="empty">No stops yet. Add the customers you\'re seeing.</div>'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">
@@ -225,7 +266,7 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
     ${stops.length ? `<div class="small">Google Maps takes all the stops at once. For Apple Maps, tap a stop and use 🧭 Directions on its brief.</div>` : ""}
     ${!homePc() ? `<div class="banner soft" style="margin-top:10px">🏠 <span>Set your home postcode in Mileage so routes and miles start from home.</span></div>` : ""}
     ${sugg.length ? `<h2>💡 Worth a visit while you're there</h2><div class="list">${sugg.map(x => { const c = IDX.co.get(x.key);
-      return `<div class="row"><div class="m"><div class="t">${esc(c.name)}</div><div class="s">${x.d.toFixed(1)} mi from a stop · ${esc(x.rs.join(", "))}</div></div><button class="btn sm" data-add="${esc(x.key)}">＋ Add</button></div>`; }).join("")}</div>` : ""}`;
+      return `<div class="row"><div class="m"><div class="t">${esc(c.name)}</div><div class="s">${x.d.toFixed(1)} mi from a stop · ${esc(x.rs.join(", "))}</div></div><button class="btn sm sec" data-snz="${esc(x.key)}" title="Not now">💤</button><button class="btn sm" data-add="${esc(x.key)}">＋ Add</button></div>`; }).join("")}</div>` : ""}`;
   const v = $("#view");
   v.querySelector("#pdate").onchange = e => go("#/plan/" + e.target.value);
   v.querySelectorAll("[data-mv]").forEach(b => b.onclick = async () => { const [i, dir] = b.dataset.mv.split("|").map(Number), p = planFor(d), j = i + dir;
@@ -235,16 +276,37 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
     await removeVisit(x.id); render(); });
   v.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { planFor(d).splice(+b.dataset.rm, 1); await saveRoad("plans"); render(); });
   v.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => { await addToPlan(d, b.dataset.add); toast("Added to the plan"); render(); });
+  v.querySelectorAll("[data-snz]").forEach(b => b.onclick = () => { const k = b.dataset.snz, c = IDX.co.get(k);
+    openSheet(`<b style="font-size:17px">💤 Stop suggesting ${esc(c ? c.name : "")}</b><div class="small" style="margin:4px 0 10px">Only visit suggestions — Today's reminders stay. Goes to the PC's Plan visits at the next sync.</div>
+      <div class="qgrid">${[["2 weeks", 14], ["1 month", 30], ["3 months", 91]].map(([l, n]) => `<button class="fchip" data-days="${n}">${l}</button>`).join("")}</div>
+      <button class="btn block sec" data-days="0">Don't suggest again</button>`, el => el.querySelectorAll("[data-days]").forEach(x => x.onclick = async () => {
+        const days = +x.dataset.days || null; await addEvent("visit_snooze", k, {days, until: days ? addDays(days) : ""}); closeSheet(); toast("Snoozed"); render(); })); });
   v.querySelector("#addStop").onclick = () => pickCompany("Add a stop", async k => { closeSheet(); await addToPlan(d, k); await ensureGeo([companyPostcode(k)]); render(); });
   v.querySelector("#bestOrder").onclick = async () => {
-    await ensureGeo(stops.map(s => s.pc).concat(homePc()), true);
-    let from = geoOf(homePc());
-    if (!from) { try { from = await hereNow(); } catch (e) { from = null; } }
-    const left = keys.map(k => ({k, g: geoOf(companyPostcode(k))})), withG = left.filter(x => x.g), noG = left.filter(x => !x.g), order = [];
-    let cur = from || (withG[0] && withG[0].g);
-    while (withG.length) { let bi = 0; withG.forEach((x, i) => { if (miles(cur, x.g) < miles(cur, withG[bi].g)) bi = i; }); const nx = withG.splice(bi, 1)[0]; order.push(nx.k); cur = nx.g; }
-    ROAD.plans[d] = order.concat(noG.map(x => x.k)); await saveRoad("plans");
-    toast(noG.length ? `Re-ordered (${noG.length} without a postcode left at the end)` : "Re-ordered — shortest hops first"); render();
+    await ensureGeo(stops.map(s => s.pc).concat(homePc(), officePc()), true);
+    const cfg = ROAD.mileage[d] || {}, ends = dayEnds(cfg), sp = endPoint(ends.s), ep = endPoint(ends.e);
+    let from = sp ? geoOf(sp.pc) : null; if (!from) { try { from = await hereNow(); } catch (e) { from = null; } }
+    const to = ep ? geoOf(ep.pc) : null;
+    // stops already checked in stay where they are, at the front
+    const doneK = stops.filter(s => s.done).map(s => s.key), todo = stops.filter(s => !s.done);
+    const items = todo.filter(s => s.geo).map(s => ({k: s.key, g: s.geo, t: s.t, name: s.name})), noG = todo.filter(s => !s.geo).map(s => s.key);
+    if (doneK.length) { const last = stops.filter(s => s.done && s.geo).pop(); if (last) from = last.geo; }
+    const timed = items.filter(x => x.t).sort((a, b) => a.t.localeCompare(b.t)), cur = items.map(x => x.k);
+    const firstLock = timed[0] || items.find(x => x.k === cur[0]) || items[0];
+    const opts = [["shortest", "Shortest route", "Ignores the times — see if a time is worth moving", shortest(from, items, to)]];
+    if (timed.length) opts.push(["keep", "Keep my times", "Timed visits stay in time order; the rest fit around them", keepTimes(from, items, to)]);
+    if (firstLock) opts.push(["lock", `Lock ${firstLock.name} first`, "That stop stays first; everything after it is reordered", lockFirst(from, items, to, firstLock)]);
+    const curSeq = cur.map(k => items.find(x => x.k === k)), now = pathMiles(from, curSeq, to);
+    const clash = seq => timed.filter((x, i) => { const pos = seq.indexOf(x); return seq.some((y, j) => y.t && j < pos && y.t > x.t); });
+    openSheet(`<b style="font-size:17px">✨ Best order</b><div class="small" style="margin:4px 0 10px">Now: about ${now.toFixed(0)} mi${ep ? ` including back to ${ep.label.toLowerCase()}` : ""}. Estimates — straight line × 1.25.${noG.length ? ` ${noG.length} stop(s) with no postcode stay at the end.` : ""}</div>
+      ${opts.map(([k, l, sub, seq], i) => { const mi = pathMiles(from, seq, to), cl = clash(seq);
+        return `<button class="card" data-ord="${i}" style="display:block;width:100%;text-align:left;border:1px solid var(--bd)"><div style="display:flex;align-items:baseline;gap:8px"><b style="font-size:15.5px">${esc(l)}</b><span style="margin-left:auto;font-weight:800">≈ ${mi.toFixed(0)} mi</span></div>
+          <div class="small">${esc(sub)}${now - mi > 0.5 ? ` · saves ≈ ${(now - mi).toFixed(0)} mi` : ""}</div>
+          <div class="small" style="margin-top:4px">${seq.map((x, j) => `${j + 1}. ${esc(x.name)}${x.t ? " ⏰" + esc(x.t) : ""}`).join(" → ")}</div>
+          ${cl.length ? `<div class="small t-amber" style="margin-top:4px">⚠ ${cl.map(x => `${esc(x.name)} (${esc(x.t)})`).join(", ")} would be out of time order — worth a call to move it?</div>` : ""}</button>`; }).join("")}`, el => {
+      el.querySelectorAll("[data-ord]").forEach(b => b.onclick = async () => { const seq = opts[+b.dataset.ord][3];
+        ROAD.plans[d] = doneK.concat(seq.map(x => x.k), noG); await saveRoad("plans"); closeSheet(); toast("Re-ordered"); render(); });
+    });
   };
   const pcs = stops.map(s => s.pc).concat(homePc());
   if (geoPending(pcs)) { await ensureGeo(pcs); if (location.hash.startsWith("#/plan")) render(); }

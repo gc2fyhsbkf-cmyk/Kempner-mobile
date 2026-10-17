@@ -244,6 +244,7 @@ function describe(e) {
   switch (e.type) {
     case "note": return "📝 " + (d.reference === "Phone call" ? "Call: " : "") + d.content;
     case "action_new": return `✅ ${d.note} (${niceDate(d.date)})`;
+    case "visit_snooze": return d.days ? `💤 No visit suggestions for ${d.days} days` : "💤 Don't suggest visiting";
     case "address_new": return `📍 Address: ${d.lines.replace(/\n/g, ", ")}`;
     case "action_pin": return `${d.pinned ? "📌 Pinned" : "Unpinned"}: ${d.action_note}`;
     case "action_move": return `⏭ Moved to ${niceDate(d.date)}${d.time ? " " + d.time : ""}: ${d.action_note}${d.reason ? " (" + d.reason + ")" : ""}`;
@@ -339,6 +340,7 @@ $("#fileIn").onchange = async e => {
   let data;
   try { data = JSON.parse(await f.text()); } catch (err) { return toast("That file isn't readable.", 4000); }
   if (data.kempner_phone_changes) return toast("That's a phone changes file — it goes into the CRM, not here.", 5000);
+  if (data.kempner_phone_backup) return restoreBackup(data);
   if (!data.kempner_phone_snapshot || !data.tables) return toast("That isn't a Kempner snapshot file.", 4000);
   if (SNAP && data.exported_at && SNAP.exported_at && data.exported_at < SNAP.exported_at &&
       !confirm(`This snapshot (${data.exported_at.slice(0,16)}) is OLDER than the one loaded (${SNAP.exported_at.slice(0,16)}). Load it anyway?`)) return;
@@ -354,6 +356,37 @@ $("#fileIn").onchange = async e => {
 };
 function pickSnapshot() { const f = $("#fileIn"); f.value = ""; f.click(); }
 
+// ---------- 💾 backup of what only lives on this phone (mileage, visits, plans, card, unsent items) ----------
+async function makeBackup() {
+  const road = typeof ROAD !== "undefined" ? ROAD : {};
+  const meta = Object.assign({}, META); delete meta.lastCall;
+  const data = {kempner_phone_backup: 1, made_at: nowIso(), device: META.device || "iPhone", meta, road, pending: PENDING};
+  const f = new File([JSON.stringify(data)], `kempner_phone_backup_${localDate()}.json`, {type: "application/json"});
+  await shareFile(f); META.lastBackup = nowIso(); await saveMeta(); render();
+}
+async function restoreBackup(data) {
+  const n = (data.road && data.road.visits || []).length, p = (data.pending || []).length;
+  if (!confirm(`Restore the backup from ${String(data.made_at || "").slice(0, 16).replace("T", " ")}?\n\nThis puts back ${n} mileage stop(s), your day plans, mileage settings and card details. ${p} unsent item(s) in it are added to anything waiting here (nothing is sent twice).`)) return;
+  if (typeof ROAD !== "undefined" && data.road) { for (const k of Object.keys(data.road)) { ROAD[k] = data.road[k]; await KV.set("road_" + k, ROAD[k]); } }
+  const keep = {user: META.user, device: META.device};
+  META = Object.assign(META, data.meta || {}, Object.fromEntries(Object.entries(keep).filter(([, v]) => v))); await saveMeta();
+  const have = new Set(PENDING.map(e => e.id)), applied = new Set((SNAP && SNAP.applied_event_ids) || []);
+  for (const e of data.pending || []) if (!have.has(e.id) && !applied.has(e.id)) PENDING.push(e);
+  await savePending(); applyTheme(); render(); toast("✓ Backup restored", 4000);
+}
+const backupDue = () => { const last = META.lastBackup ? (Date.now() - new Date(META.lastBackup).getTime()) / 86400000 : 999;
+  const hasData = typeof ROAD !== "undefined" && (ROAD.visits.length || Object.keys(ROAD.plans).length); return hasData && last >= 7 ? (META.lastBackup ? Math.floor(last) : -1) : 0; };
+// A weekday "send your changes" reminder in the iPhone Calendar (web apps can't send their own notifications without a server).
+function calendarReminder() {
+  const t = META.remindTime || "17:00", start = nextWorkday(0 + 0).replace(/-/g, "") + "T" + t.replace(":", "") + "00";
+  const url = location.href.split("#")[0] + "#/sync";
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kempner Mobile//EN", "BEGIN:VEVENT", `UID:kempner-send-reminder@kempner-mobile`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+    `DTSTART:${start}`, "DURATION:PT10M", "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "SUMMARY:📤 Send today's changes to the CRM",
+    `DESCRIPTION:Open Kempner Mobile → Sync → Export changes (and save a backup on Fridays). ${url}`, `URL:${url}`,
+    "BEGIN:VALARM", "TRIGGER:PT0M", "ACTION:DISPLAY", "DESCRIPTION:Send today's changes to the CRM", "END:VALARM", "END:VEVENT", "END:VCALENDAR"];
+  shareFile(new File([lines.join("\r\n")], "Kempner send reminder.ics", {type: "text/calendar"}));
+}
+
 // ---------- health banners (shown on Today & Sync) ----------
 function healthBanners() {
   const out = [];
@@ -363,6 +396,7 @@ function healthBanners() {
     const cls = days >= (META.remindDays || 2) ? "amber" : "soft";
     out.push(`<a class="banner ${cls}" href="#/sync">⬆️ <span>${PENDING.length} item${PENDING.length === 1 ? "" : "s"} only on this phone${days >= 1 ? ` · oldest ${Math.floor(days)} day${Math.floor(days) === 1 ? "" : "s"}` : ""} — send to CRM</span><span class="chev">›</span></a>`);
   }
+  const bd = backupDue(); if (bd) out.push(`<a class="banner soft" href="#/sync" data-backup="1">💾 <span>${bd < 0 ? "Back up your mileage, visits and plans — they only live on this phone" : `Last phone backup ${bd} days ago — back up your mileage and visits`}</span><span class="chev">›</span></a>`);
   if (SNAP && SNAP.exported_at) {
     const d = (Date.now() - new Date(SNAP.exported_at.replace(" ", "T")).getTime()) / 86400000;
     if (d >= 7) out.push(`<a class="banner soft" href="#/sync">🕘 <span>CRM copy is ${Math.floor(d)} days old — load a fresh snapshot</span><span class="chev">›</span></a>`);
@@ -379,6 +413,7 @@ async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+document.addEventListener("click", e => { const b = e.target.closest("[data-backup]"); if (b) { e.preventDefault(); makeBackup(); } });
 document.getElementById("brand").addEventListener("click", () => go("#/home"));
 // Tapping a bottom tab always closes any open sheet and refreshes that screen, even if it's the current one.
 document.getElementById("tabs").addEventListener("click", e => {

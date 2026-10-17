@@ -23,7 +23,7 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - Plan my day suggests up to three Lobby leads within 3 miles of your stops.
 - **Company page**: Call / Text / Email / Directions, a big **＋ Add** button, and tabs for Overview · Notes · Actions · Meetings · People · Commercial · Equipment · Files.
 - **Road**, which has three parts:
-  - **Plan my day**: days you plan on the PC (**🗓 Plan visits**) arrive with the next snapshot, marked 🖥 from PC with any note you wrote. Changes you make on the phone are kept. Or add the customers you're seeing here, tap ✨ Best order, then open the whole route in Google Maps. It also suggests nearby customers who are due a reorder or a nudge.
+  - **Plan my day**: meetings booked for the day (on the PC or phone) appear as stops automatically, with ⏰ their time. **✨ Best order** offers *Shortest route* (ignores times, and warns which timed visit would move), *Keep my times* (timed visits stay in order; the rest fit around them) or *Lock the first stop*, each with its estimated miles. 💤 on a suggestion stops it being suggested for a while. Days you plan on the PC (**🗓 Plan visits**) arrive with the next snapshot, marked 🖥 from PC with any note you wrote. Changes you make on the phone are kept. Or add the customers you're seeing here, tap ✨ Best order, then open the whole route in Google Maps. It also suggests nearby customers who are due a reorder or a nudge.
   - **Nearby**: your customers sorted by distance from where you are.
   - **Mileage**: your miles are built automatically from visits, check-ins and signed sheets. Each day can **start** and **end** at Home, the Office or the first/last stop. **＋ Stop** adds the office mid-day, a customer, or somewhere not on your list. ✕ takes a stop off, e.g. a mis-tapped check-in. The rate takes 45, 45p or 0.45. Road miles need signal. You can correct any leg, see month totals × your pence per mile, export a CSV for your claim, and mark a month as claimed.
 - **📋 Brief** on every company: who you'll meet, the last conversations, open actions and quotes, recent orders, what they run, and trials. **🔊 Read aloud** reads it to you in the car, and **📍 Check in** logs you at the customer.
@@ -83,6 +83,12 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 
 ## Colours
 - The app follows the PC's colours, so it's light unless you tick Dark mode in the CRM. Sync → Settings → **Colours** can force Light or Dark, or follow the iPhone.
+
+## 💾 Backup and reminders (Sync → Settings)
+- **Back up this phone's data** saves your mileage, visits, day plans, card details and anything unsent as one file (save it to Drive). To restore, pick that file with 📥 Load snapshot. Home reminds you if it's been a week.
+- **Weekday 5pm reminder** adds a repeating "send today's changes" event to your iPhone Calendar, which does the notifying.
+- **✏️ Edit** an unsent note, action, visit, address or new company from the Sync list (or ✏️ on an unsent note) before it goes to the CRM.
+- Company search also looks **inside notes** ("📝 In their notes").
 
 ## Safety nets
 - A banner warns when items have been on the phone too long without being sent, and when the CRM copy is a week old.

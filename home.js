@@ -29,7 +29,7 @@ route(/^#\/home$/, () => {
   const mc = nc ? mainContact(nx.key) : null, addr = nc ? rows("addresses", nx.key)[0] : null;
   const tiles = [["📝", "Note", "#4f46e5", "note"], ["📞", "Log call", "#0891b2", "call"], ["✅", "Action", "#16a34a", "action"],
     ["🤝", "Visit", "#2563eb", "meeting"], ["📷", "Photo", "#db2777", "photo"], ["🏢", "New lead", "#64748b", "#/newco"], ["📍", "Nearby", "#0d9488", "#/nearby"], ["🧮", "Cost/pack", "#0f766e", "pack"]];
-  v.innerHTML = `
+  v.innerHTML = `${healthBanners()}
     <div style="margin:2px 4px 10px"><div style="font-size:22px;font-weight:800">${hi}${first ? ", " + esc(first) : ""}</div>
       <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}</div></div>
     <input class="search" id="hq" type="search" placeholder="🔎 Find a company, person or postcode…" autocomplete="off">
@@ -44,6 +44,8 @@ route(/^#\/home$/, () => {
           ${mc && dialable(mc.number) ? `<a href="tel:${esc(digits(mc.number))}" data-call="${esc(nx.key)}" data-num="${esc(mc.number)}">📞<span>Call</span></a>` : ""}</div></div>`
       : `<a class="banner soft" href="#/plan" style="margin-top:4px">🗓 <span>Nothing planned yet today — plan your visits</span><span class="chev">›</span></a>`}
     <a class="small" href="#/dropin" style="display:block;text-align:right;margin:4px 6px 0">📍 Popped in somewhere not on your list? Drop-in ›</a>
+    ${(r => r.length ? `<h2>🕘 Recently opened</h2><div class="scrollx" style="padding-top:0">${r.map(c => `<a class="fchip" href="${coHref(c._key)}">${esc(c.name)}</a>`).join("")}</div>` : "")((META.recent || []).map(k => IDX.co.get(k)).filter(Boolean).slice(0, 6))}
+    <div id="homeNear"></div>
     <h2>⚡ Quick</h2>
     <div class="sgrid">${tiles.map(([i, l, col, k]) => k.startsWith("#") ? `<a href="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`
       : `<button data-q="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</button>`).join("")}</div>
@@ -56,6 +58,7 @@ route(/^#\/home$/, () => {
     </div>`;
   const q = $("#hq"); q.onkeydown = e => { if (e.key === "Enter") { coQuery = q.value; coLimit = 80; go("#/companies"); } };
   q.oninput = () => { if (q.value.length >= 2) { coQuery = q.value; coLimit = 80; go("#/companies"); setTimeout(() => { const s = $("#q"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 30); } };
+  homeNearby();
   const hc = $("#hCheck"); if (hc) hc.onclick = () => checkIn(nx.key);
   const ROUTES = {note: k => `#/add/note/${k}`, call: k => `#/call/${k}`, action: k => `#/add/action/${k}`, meeting: k => `#/add/meeting/${k}`, sign: k => `#/sign/${k}`, pack: k => `#/pack/${k}/new`};
   v.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
@@ -67,6 +70,16 @@ route(/^#\/home$/, () => {
     else pickCompany(title, pick);
   });
 });
+
+// "Near you now": only if you've already allowed location (it never asks from Home), closest 3 customers within 3 miles.
+async function homeNearby() {
+  const host = $("#homeNear"); if (!host || !navigator.permissions || !navigator.geolocation) return;
+  try { const p = await navigator.permissions.query({name: "geolocation"}); if (p.state !== "granted") return; } catch (e) { return; }
+  let here; try { here = await hereNow(8000); } catch (e) { return; }
+  const near = scope().map(c => ({c, g: geoOf(companyPostcode(c._key))})).filter(x => x.g).map(x => ({c: x.c, d: miles(here, x.g)})).filter(x => x.d <= 3).sort((a, b) => a.d - b.d).slice(0, 3);
+  if (!near.length || !$("#homeNear")) return;
+  $("#homeNear").innerHTML = `<h2>📍 Near you now <a class="r small" href="#/nearby">All ›</a></h2><div class="list">${near.map(x => `<a class="row" href="${coHref(x.c._key)}"><div class="m"><div class="t">${esc(x.c.name)}${isQuiet(x.c) ? ' <span class="chip">🛋 lead</span>' : ""}</div><div class="s">${x.d.toFixed(1)} mi away${(() => { const n = openActions(x.c._key).length; return n ? ` · ${n} open action${n === 1 ? "" : "s"}` : ""; })()}</div></div><span class="chev">›</span></a>`).join("")}</div>`;
+}
 
 // ---------- 🩺 MISSING INFO — the phone's version of the CRM's data health check ----------
 // Lobby leads are left out (they're allowed to be bare). Anything you add here goes to the CRM at the next sync.
