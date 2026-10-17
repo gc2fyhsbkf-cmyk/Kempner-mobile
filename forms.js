@@ -554,7 +554,8 @@ const cardQrText = c => (META.cardQr || "page") === "vcard" ? vcardText(c) : car
 function qrSvg(text) {
   qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
   const q = qrcode(0, "M"); q.addData(text); q.make();
-  return q.createSvgTag({cellSize: 6, margin: 2, scalable: true});
+  // centred in whatever box it sits in (the library's default pins it to the top-left)
+  return q.createSvgTag({cellSize: 6, margin: 2, scalable: true}).replace('preserveAspectRatio="xMinYMin meet"', 'preserveAspectRatio="xMidYMid meet"');
 }
 route(/^#\/card(\/qr)?$/, qrFirst => {
   const c = myCard();

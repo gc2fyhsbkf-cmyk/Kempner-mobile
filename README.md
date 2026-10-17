@@ -25,7 +25,7 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - **Road**, which has three parts:
   - **Plan my day**: days you plan on the PC (**🗓 Plan visits**) arrive with the next snapshot, marked 🖥 from PC with any note you wrote. Changes you make on the phone are kept. Or add the customers you're seeing here, tap ✨ Best order, then open the whole route in Google Maps. It also suggests nearby customers who are due a reorder or a nudge.
   - **Nearby**: your customers sorted by distance from where you are.
-  - **Mileage**: your miles are built automatically from visits, check-ins and signed sheets, starting and ending at your home postcode. Road miles need signal. You can correct any leg, see month totals × your pence per mile, export a CSV for your claim, and mark a month as claimed.
+  - **Mileage**: your miles are built automatically from visits, check-ins and signed sheets. Each day can **start** and **end** at Home, the Office or the first/last stop. **＋ Stop** adds the office mid-day, a customer, or somewhere not on your list. ✕ takes a stop off, e.g. a mis-tapped check-in. The rate takes 45, 45p or 0.45. Road miles need signal. You can correct any leg, see month totals × your pence per mile, export a CSV for your claim, and mark a month as claimed.
 - **📋 Brief** on every company: who you'll meet, the last conversations, open actions and quotes, recent orders, what they run, and trials. **🔊 Read aloud** reads it to you in the car, and **📍 Check in** logs you at the customer.
 - **Prices**: what each product last sold for, and to whom, plus the CRM's calculators (GP, VAT, price per m², thickness).
 - **🧮 Cost per pack** (Prices → Calculators, a company's ＋ Add, or tap a pack profile on Equipment):
@@ -61,6 +61,10 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
   - collection
   - work completed.
 - **📅 Add to Calendar** on meetings and actions puts them in the iPhone Calendar with a reminder.
+
+## 📍 Drop-ins and check-ins
+- **Drop-in** (Home, Plan my day, or Mileage → ＋ Stop): somewhere you popped into that isn't on your list. Fill in a name, a postcode (📍 I'm here does it for you) and a time. Save it as just a mileage stop, a 🛋 Lobby lead or a customer. A mileage stop can be added to your customers later (＋🏢 on its mileage line).
+- **Mis-tapped check-in?** Use ↩ Undo on the check-in screen, ↩ on the stop in Plan my day, or ✕ on its line in Mileage. Any note or visit you logged stays in the CRM.
 
 ## 🩺 Missing info
 - From Home (or Sync → Settings): your customers missing a postcode, a contact, a phone number or an email, with a button to fix each one there and then. Lobby leads are left out. Duplicates and untagged products stay on the PC's Data health.

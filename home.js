@@ -43,6 +43,7 @@ route(/^#\/home$/, () => {
           <button id="hCheck">📍<span>Check in</span></button>
           ${mc && dialable(mc.number) ? `<a href="tel:${esc(digits(mc.number))}" data-call="${esc(nx.key)}" data-num="${esc(mc.number)}">📞<span>Call</span></a>` : ""}</div></div>`
       : `<a class="banner soft" href="#/plan" style="margin-top:4px">🗓 <span>Nothing planned yet today — plan your visits</span><span class="chev">›</span></a>`}
+    <a class="small" href="#/dropin" style="display:block;text-align:right;margin:4px 6px 0">📍 Popped in somewhere not on your list? Drop-in ›</a>
     <h2>⚡ Quick</h2>
     <div class="sgrid">${tiles.map(([i, l, col, k]) => k.startsWith("#") ? `<a href="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`
       : `<button data-q="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</button>`).join("")}</div>

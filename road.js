@@ -35,7 +35,16 @@ async function mergePcPlans() {
 }
 const fromPc = (d, k) => (ROAD.pc.seen[d] || []).includes(String(k));
 const pcNote = (d, k) => (ROAD.pc.notes[d] || {})[String(k)] || "";
-window.onSnapshotLoaded = async () => { const n = await mergePcPlans(); return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
+// Companies made on the phone have a temporary key until the CRM imports them; once a snapshot
+// arrives with their real id, move any mileage stops and plan stops over to it.
+async function remapTempKeys() {
+  const tm = (SNAP && SNAP.company_temp_map) || {}, fix = k => { if (!String(k).startsWith("t:")) return k; const r = tm[String(k).slice(2)]; return r != null ? String(r) : k; };
+  let n = 0;
+  for (const v of ROAD.visits) if (v.key && fix(v.key) !== v.key) { v.key = fix(v.key); n++; }
+  for (const d of Object.keys(ROAD.plans)) { const nu = ROAD.plans[d].map(fix); if (nu.some((k, i) => k !== ROAD.plans[d][i])) { ROAD.plans[d] = [...new Set(nu)]; n++; } }
+  if (n) { await saveRoad("visits"); await saveRoad("plans"); }
+}
+window.onSnapshotLoaded = async () => { await remapTempKeys(); const n = await mergePcPlans(); return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
 
 // ---------- visits (check-ins + logged visits) ----------
 function visitsOn(date) { return ROAD.visits.filter(v => v.date === date).sort((a, b) => (a.time || "").localeCompare(b.time || "")); }
@@ -48,13 +57,28 @@ async function recordVisit(key, date, time, src) {
   await saveRoad("visits");
 }
 async function checkIn(key) {
-  await recordVisit(key, localDate(), localTime(), "checkin");
+  const d = localDate(), before = ROAD.visits.find(v => v.key === String(key) && v.date === d), snap = before ? Object.assign({}, before) : null;
+  await recordVisit(key, d, localTime(), "checkin");
   const c = IDX.co.get(String(key));
   openSheet(`<b style="font-size:17px">📍 Checked in · ${esc(c ? c.name : "")}</b><div class="small" style="margin:4px 0 14px">${localTime()} — added to today's mileage.</div>
     <a class="btn block green" href="#/add/meeting/${encodeURIComponent(key)}">🤝 Log the visit now</a>
     <a class="btn block sec" href="#/brief/${encodeURIComponent(key)}">📋 Read the brief</a>
-    <button class="btn block sec" onclick="closeSheet()">Later</button>`);
+    <button class="btn block sec" onclick="closeSheet()">Later</button>
+    <button class="btn block sec" id="undoCi" style="color:var(--red)">↩ Undo — I didn't mean to check in</button>`, el => {
+    el.querySelector("#undoCi").onclick = async () => {
+      if (snap) { const v = ROAD.visits.find(x => x.id === snap.id); if (v) Object.assign(v, snap); await saveRoad("visits"); }   // was already there: put it back as it was
+      else { const v = ROAD.visits.find(x => x.key === String(key) && x.date === d); if (v) await removeVisit(v.id, true); }
+      closeSheet(); toast("Check-in undone"); render(); };
+  });
 }
+// Take a stop off a day's mileage (a mis-tapped check-in, or a visit you didn't drive to). Logged notes/meetings stay in the CRM.
+async function removeVisit(id, quiet) {
+  const v = ROAD.visits.find(x => x.id === id); if (!v) return;
+  ROAD.visits = ROAD.visits.filter(x => x.id !== id); await saveRoad("visits");
+  const cfg = ROAD.mileage[v.date]; if (cfg && cfg.over && Object.keys(cfg.over).length) { cfg.over = {}; await saveRoad("mileage"); if (!quiet) toast("Removed — that day's typed-in miles were reset as the legs changed", 4000); }
+}
+// Rate per mile is stored in pence; "0.55" or "£0.55" means 55p (nobody is paid under 5p a mile).
+function mileRateP() { const v = parseFloat(String(META.mileRate || "").replace(/[£p\s]/gi, "")); return !(v > 0) ? 0 : v < 5 ? Math.round(v * 1000) / 10 : v; }
 
 // ---------- geo helpers ----------
 // Look up missing postcodes once per app session (so no signal or an odd reply can't make a screen keep retrying).
@@ -64,6 +88,10 @@ async function ensureGeo(pcs, force) { const miss = [...new Set(pcs.filter(p => 
   if (miss.length && navigator.onLine !== false) { try { await geocodeMissing(miss); } catch (e) {} } }
 const geoOf = pc => (pc && GEO[pc] && !GEO[pc].none) ? GEO[pc] : null;
 const homePc = () => (META.homePostcode || "").toUpperCase().trim();
+const officePc = () => (META.officePostcode || "HA7 1JZ").toUpperCase().trim();
+// Where a day starts/ends: "home", "office" or "none" (first/last stop). Older days stored startHome/endHome true/false.
+function dayEnds(cfg) { return {s: cfg.start || (cfg.startHome === false ? "none" : "home"), e: cfg.end || (cfg.endHome === false ? "none" : "home")}; }
+const endPoint = w => w === "home" ? (homePc() ? {pc: homePc(), label: "Home"} : null) : w === "office" ? {pc: officePc(), label: "Office"} : null;
 function hereNow(timeout = 12000) {
   return new Promise((res, rej) => navigator.geolocation ? navigator.geolocation.getCurrentPosition(p => res({lat: p.coords.latitude, lon: p.coords.longitude}), rej,
     {enableHighAccuracy: false, timeout, maximumAge: 120000}) : rej(new Error("no location on this device")));
@@ -188,10 +216,10 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
     <div class="list" id="stops">${stops.map((s, i) => `<div class="row ${s.done ? "pend" : ""}">
         <div style="width:26px;height:26px;border-radius:50%;background:${s.done ? "var(--green)" : "var(--red)"};color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex:none">${s.done ? "✓" : i + 1}</div>
         <a class="m" href="#/brief/${encodeURIComponent(s.key)}" style="color:inherit"><div class="t">${esc(s.name)}</div><div class="s">${fromPc(d, s.key) ? '<span class="chip c-blue" style="font-size:10.5px;padding:1px 6px;margin-right:6px">🖥 from PC</span>' : ""}${s.pc ? esc(s.pc) : "⚠ no postcode"}${i && s.geo && stops[i - 1].geo ? ` · ${miles(stops[i - 1].geo, s.geo).toFixed(1)} mi from last` : ""}${s.done ? " · checked in" : ""}</div>${pcNote(d, s.key) ? `<div class="s" style="white-space:normal">🗒 ${esc(pcNote(d, s.key))}</div>` : ""}</a>
-        <div style="display:flex;gap:4px"><button class="btn sm sec" data-mv="${i}|-1" ${i ? "" : "disabled"}>↑</button><button class="btn sm sec" data-mv="${i}|1" ${i < stops.length - 1 ? "" : "disabled"}>↓</button><button class="btn sm sec" data-rm="${i}" style="color:var(--red)">✕</button></div></div>`).join("")
+        <div style="display:flex;gap:4px">${s.done ? `<button class="btn sm sec" data-unci="${esc(s.key)}" title="Undo the check-in">↩</button>` : ""}<button class="btn sm sec" data-mv="${i}|-1" ${i ? "" : "disabled"}>↑</button><button class="btn sm sec" data-mv="${i}|1" ${i < stops.length - 1 ? "" : "disabled"}>↓</button><button class="btn sm sec" data-rm="${i}" style="color:var(--red)">✕</button></div></div>`).join("")
       || '<div class="empty">No stops yet. Add the customers you\'re seeing.</div>'}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">
-      <button class="btn sm" id="addStop">＋ Add stop</button>
+      <button class="btn sm" id="addStop">＋ Add stop</button><a class="btn sm sec" href="#/dropin">📍 Drop-in</a>
       <button class="btn sm sec" id="bestOrder" ${stops.length > 1 ? "" : "disabled"}>✨ Best order</button>
       ${stops.length ? `<a class="btn sm green" href="${routeUrl(stops, start)}" target="_blank">🗺 Route in Google Maps</a>` : ""}</div>
     ${stops.length ? `<div class="small">Google Maps takes all the stops at once. For Apple Maps, tap a stop and use 🧭 Directions on its brief.</div>` : ""}
@@ -202,6 +230,9 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
   v.querySelector("#pdate").onchange = e => go("#/plan/" + e.target.value);
   v.querySelectorAll("[data-mv]").forEach(b => b.onclick = async () => { const [i, dir] = b.dataset.mv.split("|").map(Number), p = planFor(d), j = i + dir;
     [p[i], p[j]] = [p[j], p[i]]; await saveRoad("plans"); render(); });
+  v.querySelectorAll("[data-unci]").forEach(b => b.onclick = async () => { const x = ROAD.visits.find(y => y.key === b.dataset.unci && y.date === d);
+    if (!x || !confirm(`Undo the check-in at ${x.name}${x.time ? " (" + x.time + ")" : ""}?\n\nIt comes off this day's mileage. Any note or visit you logged stays.`)) return;
+    await removeVisit(x.id); render(); });
   v.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { planFor(d).splice(+b.dataset.rm, 1); await saveRoad("plans"); render(); });
   v.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => { await addToPlan(d, b.dataset.add); toast("Added to the plan"); render(); });
   v.querySelector("#addStop").onclick = () => pickCompany("Add a stop", async k => { closeSheet(); await addToPlan(d, k); await ensureGeo([companyPostcode(k)]); render(); });
@@ -245,11 +276,11 @@ async function roadMiles(a, b) {
   if (j.routes && j.routes[0]) ROAD.dist[distKey(a, b)] = Math.round(j.routes[0].distance / 1609.344 * 10) / 10;
 }
 function dayLegs(date) {
-  const vs = visitsOn(date), cfg = ROAD.mileage[date] || {}, home = homePc(), legs = [];
-  const pts = [];
-  if (home && cfg.startHome !== false) pts.push({pc: home, label: "Home"});
-  for (const v of vs) pts.push({pc: v.pc || companyPostcode(v.key), label: v.name, key: v.key, time: v.time});
-  if (home && cfg.endHome !== false && vs.length) pts.push({pc: home, label: "Home"});
+  const vs = visitsOn(date), cfg = ROAD.mileage[date] || {}, legs = [], {s, e} = dayEnds(cfg);
+  const pts = [], st = endPoint(s), en = endPoint(e);
+  if (st) pts.push(st);
+  for (const v of vs) pts.push({pc: v.kind === "office" ? officePc() : (v.pc || companyPostcode(v.key)), label: v.kind === "office" ? "Office" : v.name, key: v.key, time: v.time, vid: v.id, kind: v.kind || (v.key ? "" : "place")});
+  if (en && vs.length) pts.push(en);
   for (let i = 1; i < pts.length; i++) { const k = `${i}`, base = legMiles(pts[i - 1].pc, pts[i].pc), ov = (cfg.over || {})[k];
     legs.push({i: k, from: pts[i - 1], to: pts[i], mi: ov != null ? ov : base.mi, est: ov != null ? false : base.est, edited: ov != null}); }
   return legs;
@@ -259,15 +290,17 @@ route(/^#\/mileage(?:\/(\d{4}-\d{2}))?$/, mArg => {
   const m = mlMonth = mArg || mlMonth || localDate().slice(0, 7);
   const [yy, mm] = m.split("-").map(Number), prev = `${mm === 1 ? yy - 1 : yy}-${pad(mm === 1 ? 12 : mm - 1)}`, next = `${mm === 12 ? yy + 1 : yy}-${pad(mm === 12 ? 1 : mm + 1)}`;
   const days = [...new Set(ROAD.visits.filter(v => v.date.startsWith(m)).map(v => v.date))].sort().reverse();
-  const rate = +META.mileRate || 0;
+  const rate = mileRateP();
   let total = 0, anyEst = false, missing = 0;
   const dayHtml = days.map(d => { const legs = dayLegs(d), cfg = ROAD.mileage[d] || {};
     const dt = legs.reduce((s, l) => s + (+l.mi || 0), 0); total += dt; if (legs.some(l => l.est && l.mi != null)) anyEst = true; missing += legs.filter(l => l.mi == null).length;
     return `<h2>${esc(niceDate(d))} <span class="r small"><b>${dt.toFixed(1)} mi</b>${rate ? ` · ${gbp(dt * rate / 100)}` : ""}</span></h2><div class="list">${legs.map(l => `<div class="row">
         <div class="m"><div class="t" style="white-space:normal;font-weight:600">${esc(l.from.label)} → ${esc(l.to.label)}</div><div class="s">${esc(l.from.pc || "?")} → ${esc(l.to.pc || "no postcode")}${l.to.time ? " · " + esc(l.to.time) : ""}</div></div>
-        <button class="btn sm sec" data-edit="${d}|${l.i}" style="min-width:78px">${l.mi == null ? "? mi" : `${l.est ? "≈" : ""}${(+l.mi).toFixed(1)} mi`}${l.edited ? " ✎" : ""}</button></div>`).join("") || '<div class="empty">One stop and no home postcode — nothing to measure yet.</div>'}
-      <div class="row" style="justify-content:flex-start;gap:14px;font-size:13px"><label class="check" style="margin:0"><input type="checkbox" data-sh="${d}" ${cfg.startHome !== false ? "checked" : ""}> Started from home</label>
-        <label class="check" style="margin:0"><input type="checkbox" data-eh="${d}" ${cfg.endHome !== false ? "checked" : ""}> Ended at home</label><button class="btn sm sec" data-addv="${d}" style="margin-left:auto">＋ Stop</button></div></div>`; }).join("");
+        ${l.to.vid && l.to.kind === "place" ? `<a class="btn sm sec" href="#/dropin?v=${esc(l.to.vid)}" title="Add to your customers" style="padding:6px 9px">＋🏢</a>` : ""}${l.to.vid ? `<button class="btn sm sec" data-rmv="${esc(l.to.vid)}" title="Remove this stop" style="color:var(--red);padding:6px 9px">✕</button>` : ""}<button class="btn sm sec" data-edit="${d}|${l.i}" style="min-width:78px">${l.mi == null ? "? mi" : `${l.est ? "≈" : ""}${(+l.mi).toFixed(1)} mi`}${l.edited ? " ✎" : ""}</button></div>`).join("") || '<div class="empty">One stop and no home postcode — nothing to measure yet.</div>'}
+      <div class="row" style="justify-content:flex-start;gap:8px;font-size:13px;flex-wrap:wrap">${(({s, e}) => `
+        <label class="small" style="display:flex;align-items:center;gap:4px">Start <select class="fchip" data-ds="${d}">${[["home", "🏠 Home"], ["office", "🏢 Office"], ["none", "First stop"]].map(([k, l]) => `<option value="${k}" ${s === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="small" style="display:flex;align-items:center;gap:4px">End <select class="fchip" data-de="${d}">${[["home", "🏠 Home"], ["office", "🏢 Office"], ["none", "Last stop"]].map(([k, l]) => `<option value="${k}" ${e === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>`)(dayEnds(cfg))}
+        <button class="btn sm sec" data-addv="${d}" style="margin-left:auto">＋ Stop</button></div></div>`; }).join("");
   const claimed = (ROAD.mileage["claimed:" + m] || false);
   $("#view").innerHTML = `${roadSeg("mileage")}
     <div class="card"><div style="display:flex;align-items:center;gap:8px"><button class="btn sm sec" data-go="#/mileage/${prev}">‹</button>
@@ -280,24 +313,28 @@ route(/^#\/mileage(?:\/(\d{4}-\d{2}))?$/, mArg => {
       <div class="small" id="mlMsg" style="text-align:center;margin-top:6px">${missing ? `${missing} leg${missing === 1 ? "" : "s"} missing a postcode — tap the miles to type them.` : "Tap any miles figure to correct it."}</div></div>
     ${dayHtml || '<div class="empty" style="margin-top:10px">No visits this month yet. Visits you log, check-ins and signed sheets appear here automatically.</div>'}
     <h2>Settings</h2><div class="card"><div class="two"><div><label class="f">Home postcode</label><input class="f" id="homePc" value="${esc(homePc())}" placeholder="e.g. LS1 4AB" autocapitalize="characters"></div>
-      <div><label class="f">Pence per mile</label><input class="f" id="rate" type="number" inputmode="decimal" value="${esc(META.mileRate || "")}" placeholder="e.g. 45"></div></div>
+      <div><label class="f">Office postcode</label><input class="f" id="offPc" value="${esc(officePc())}" autocapitalize="characters"></div>
+      <div><label class="f">Rate per mile</label><input class="f" id="rate" inputmode="decimal" value="${esc(rate ? rate + "p" : "")}" placeholder="e.g. 45p or 0.45">${rate ? `<div class="small">= ${gbp(rate / 100)} a mile</div>` : ""}</div></div>
       <p class="small">Road miles come from OpenStreetMap routing (needs signal; only the two postcodes' map points are sent). Without signal you get a straight-line estimate × 1.25, marked ≈.</p></div>`;
   const v = $("#view");
+  v.querySelector("#offPc").onchange = async e => { META.officePostcode = e.target.value.toUpperCase().trim(); await saveMeta(); await ensureGeo([officePc()]); render(); };
   v.querySelector("#homePc").onchange = async e => { META.homePostcode = e.target.value.toUpperCase().trim(); await saveMeta(); await ensureGeo([homePc()]); render(); };
-  v.querySelector("#rate").onchange = async e => { META.mileRate = e.target.value; await saveMeta(); render(); };
+  v.querySelector("#rate").onchange = async e => { META.mileRate = e.target.value.trim(); META.mileRate = mileRateP() || ""; await saveMeta(); render(); };
   v.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => { const [d, i] = b.dataset.edit.split("|"), cur = (dayLegs(d).find(l => l.i === i) || {}).mi;
     const ans = prompt("Miles for this leg (leave blank to reset):", cur == null ? "" : cur); if (ans === null) return;
     const cfg = ROAD.mileage[d] || (ROAD.mileage[d] = {}); cfg.over = cfg.over || {};
     if (ans.trim() === "") delete cfg.over[i]; else if (!isNaN(+ans)) cfg.over[i] = Math.round(+ans * 10) / 10;
     await saveRoad("mileage"); render(); });
-  v.querySelectorAll("[data-sh],[data-eh]").forEach(c => c.onchange = async () => { const d = c.dataset.sh || c.dataset.eh, cfg = ROAD.mileage[d] || (ROAD.mileage[d] = {});
-    cfg[c.dataset.sh ? "startHome" : "endHome"] = c.checked; await saveRoad("mileage"); render(); });
-  v.querySelectorAll("[data-addv]").forEach(b => b.onclick = () => pickCompany("Add a stop to " + niceDate(b.dataset.addv), async k => {
-    const t = prompt("Roughly what time were you there? (HH:MM)", "12:00") || "12:00"; closeSheet(); await recordVisit(k, b.dataset.addv, t, "manual"); await ensureGeo([companyPostcode(k)]); render(); }));
+  v.querySelectorAll("[data-ds],[data-de]").forEach(c => c.onchange = async () => { const d = c.dataset.ds || c.dataset.de, cfg = ROAD.mileage[d] || (ROAD.mileage[d] = {});
+    cfg[c.dataset.ds ? "start" : "end"] = c.value; if (cfg.over) cfg.over = {}; await saveRoad("mileage"); render(); });
+  v.querySelectorAll("[data-addv]").forEach(b => b.onclick = () => addStopSheet(b.dataset.addv));
+  v.querySelectorAll("[data-rmv]").forEach(b => b.onclick = async () => { const x = ROAD.visits.find(y => y.id === b.dataset.rmv);
+    if (!x || !confirm(`Remove ${x.name} (${niceDate(x.date)}${x.time ? " " + x.time : ""}) from your mileage?\n\nAny note or visit you logged stays in the CRM.`)) return;
+    await removeVisit(x.id); render(); });
   v.querySelector("#claimBtn").onclick = async () => { ROAD.mileage["claimed:" + m] = !claimed; await saveRoad("mileage"); render(); };
   v.querySelector("#roadBtn").onclick = async () => {
     const msg = v.querySelector("#mlMsg"); msg.textContent = "Looking up postcodes…";
-    await ensureGeo(days.flatMap(d => visitsOn(d).map(x => x.pc || companyPostcode(x.key))).concat(homePc()));
+    await ensureGeo(days.flatMap(d => visitsOn(d).map(x => x.pc || companyPostcode(x.key))).concat(homePc(), officePc()));
     const pairs = []; for (const d of days) for (const l of dayLegs(d)) if (l.est && l.from.pc && l.to.pc && geoOf(l.from.pc) && geoOf(l.to.pc)) pairs.push([l.from.pc, l.to.pc]);
     let n = 0, fail = 0;
     for (const [a, b] of pairs) { try { await roadMiles(a, b); n++; msg.textContent = `Road miles ${n}/${pairs.length}…`; } catch (e) { fail++; } }
@@ -305,11 +342,73 @@ route(/^#\/mileage(?:\/(\d{4}-\d{2}))?$/, mArg => {
   };
   v.querySelector("#csvBtn").onclick = () => {
     const q = s => `"${String(s ?? "").replace(/"/g, '""')}"`, lines = [["Date", "From", "To", "From postcode", "To postcode", "Purpose", "Miles", "Estimated"].map(q).join(",")];
-    for (const d of days.slice().reverse()) for (const l of dayLegs(d)) lines.push([d, l.from.label, l.to.label, l.from.pc, l.to.pc, l.to.key ? "Customer visit" : "Return home", l.mi == null ? "" : (+l.mi).toFixed(1), l.est ? "Yes" : "No"].map(q).join(","));
+    for (const d of days.slice().reverse()) for (const l of dayLegs(d)) lines.push([d, l.from.label, l.to.label, l.from.pc, l.to.pc, l.to.key ? "Customer visit" : l.to.label === "Home" ? "Return home" : l.to.label === "Office" ? "Office" : "Visit (not a customer)", l.mi == null ? "" : (+l.mi).toFixed(1), l.est ? "Yes" : "No"].map(q).join(","));
     lines.push(["", "", "", "", "", "TOTAL", total.toFixed(1), ""].map(q).join(","));
     if (rate) lines.push(["", "", "", "", "", `CLAIM @ ${rate}p`, (total * rate / 100).toFixed(2), ""].map(q).join(","));
     shareFile(new File([lines.join("\r\n")], `Mileage ${m}.csv`, {type: "text/csv"}));
   };
+});
+
+// ---------- adding stops: a customer, the office, or somewhere not on your list ----------
+function addStopSheet(date) {
+  openSheet(`<b style="font-size:17px">＋ Add a stop · ${esc(niceDate(date))}</b>
+    <button class="btn block sec" id="asOffice" style="margin-top:10px">🏢 The office (${esc(officePc())})</button>
+    <a class="btn block sec" href="#/dropin?date=${date}">📍 Somewhere not on my list</a>
+    <button class="btn block" id="asCust">🔎 One of my customers…</button>`, el => {
+    el.querySelector("#asOffice").onclick = async () => { const t = prompt("Roughly what time were you at the office? (HH:MM)", "09:00"); if (t === null) return;
+      ROAD.visits.push({id: uuid(), date, time: t || "09:00", name: "Office", pc: officePc(), src: "manual", kind: "office"}); await saveRoad("visits"); await ensureGeo([officePc()]); closeSheet(); render(); };
+    el.querySelector("#asCust").onclick = () => pickCompany("Add a stop to " + niceDate(date), async k => {
+      const t = prompt("Roughly what time were you there? (HH:MM)", "12:00") || "12:00"; closeSheet(); await recordVisit(k, date, t, "manual"); await ensureGeo([companyPostcode(k)]); render(); });
+  });
+}
+// 📍 Drop-in: a stop that isn't one of your customers (mileage still counts), optionally added as a 🛋 Lobby lead or a customer.
+route(/^#\/dropin(?:\?(.*))?$/, qs => {
+  const p = new URLSearchParams(qs || ""), conv = p.get("v") ? ROAD.visits.find(x => x.id === p.get("v")) : null;
+  const date = conv ? conv.date : (p.get("date") || localDate()), when = conv ? conv.time : (date === localDate() ? localTime() : "12:00");
+  form(conv ? "Add to your customers" : "📍 Drop-in visit", "#/mileage", `
+    ${conv ? `<div class="card small">From your mileage: ${esc(conv.name)} · ${esc(niceDate(conv.date))} ${esc(conv.time || "")}</div>`
+      : `<p class="small">Somewhere you've been sent or popped into that isn't on your list. It counts towards ${esc(niceDate(date))}'s mileage.</p>`}
+    <label class="f">Company / place name</label><input class="f" name="name" required autocapitalize="words" value="${esc(conv ? conv.name : "")}">
+    <div id="dupe"></div>
+    <div class="two"><div><label class="f">Postcode</label><input class="f" name="postcode" autocapitalize="characters" value="${esc(conv ? conv.pc || "" : "")}"></div>
+      <div><label class="f">Time there</label><input class="f" type="time" name="time" value="${esc(when)}"></div></div>
+    <button type="button" class="btn block sec" id="diHere" style="margin-top:8px">📍 I'm here — fill in the postcode</button><div class="small" id="diMsg"></div>
+    <label class="f">Save it as</label><select class="f" name="as" id="diAs">
+      ${conv ? "" : '<option value="stop">Just a stop for my mileage</option>'}<option value="Lobby" ${conv ? "selected" : ""}>🛋 A lead in the Lobby</option><option value="">A customer (main list)</option></select>
+    <div id="diMore" class="${conv ? "" : "hidden"}"><label class="f">Contact name (optional)</label><input class="f" name="contact" autocapitalize="words">
+      <label class="f">Phone (optional)</label><input class="f" type="tel" name="phone">
+      <label class="f">Note (optional)</label><textarea class="f" name="note" style="min-height:70px" placeholder="e.g. Sent by Sam at Beta — they hand-wrap gift boxes, interested in a sealer"></textarea></div>`,
+    conv ? "Add to customers" : "Save drop-in", async fd => {
+      const name = (fd.name || "").trim(); if (!name) throw new Error("add a name");
+      const m = PC_FULL.exec((fd.postcode || "").replace(/\s/g, "")), pc = m ? (m[1] + " " + m[2]).toUpperCase() : (fd.postcode || "").toUpperCase().trim();
+      const time = fd.time || when;
+      if (fd.as === "stop") {
+        ROAD.visits.push({id: uuid(), date, time, name, pc, src: "dropin", kind: "place"}); await saveRoad("visits");
+        if (pc) ensureGeo([pc], true); toast("📍 Added to your mileage"); return;
+      }
+      const ev = await addEvent("company_new", null, {name, contact_name: fd.contact || "", phone: fd.phone || "", email: "", segment: fd.as || ""});
+      const key = evCoKey(ev);
+      if (pc) await addEvent("address_new", key, {label: "Main", line1: "", line2: "", city: "", county: "", postcode: pc, lines: pc});
+      if (fd.note) await addEvent("note", key, {content: "📍 Drop-in visit: " + fd.note, customer: fd.contact || "", reference: "Drop-in", tags: "", flag: "4NONE"});
+      if (conv) { conv.key = key; conv.kind = ""; conv.name = name; conv.pc = pc || conv.pc; await saveRoad("visits"); }
+      else await recordVisit(key, date, time, "dropin");
+      if (pc) ensureGeo([pc], true);
+      toast(fd.as ? "🛋 Added to the Lobby and your mileage" : "🏢 Added to your customers and mileage"); location.replace(coHref(key)); return false;
+    }, "road");
+  const f = $("#frm");
+  $("#diAs").onchange = e => $("#diMore").classList.toggle("hidden", e.target.value === "stop");
+  f.name.oninput = () => { const n = norm(f.name.value), box = $("#dupe"); if (n.length < 3) { box.innerHTML = ""; return; }
+    const hits = [...IDX.co.values()].filter(c => norm(c.name).includes(n) || n.includes(norm(c.name))).slice(0, 3);
+    box.innerHTML = hits.length ? `<div class="banner soft" style="display:block;font-weight:500">Already on your list? ${hits.map(c => `<div><a href="#" data-isco="${esc(c._key)}"><b>${esc(c.name)}</b> — use this one ›</a></div>`).join("")}</div>` : "";
+    box.querySelectorAll("[data-isco]").forEach(a => a.onclick = async e => { e.preventDefault(); const k = a.dataset.isco;
+      if (conv) { ROAD.visits = ROAD.visits.filter(x => x.id !== conv.id); await saveRoad("visits"); }
+      await recordVisit(k, date, f.time.value || when, "dropin"); toast("Added to your mileage"); location.replace(coHref(k)); }); };
+  $("#diHere").onclick = () => { const msg = $("#diMsg"); msg.textContent = "Finding where you are…";
+    navigator.geolocation.getCurrentPosition(async pos => { try {
+        const r = await fetch(`https://api.postcodes.io/postcodes?lon=${pos.coords.longitude}&lat=${pos.coords.latitude}&limit=1&radius=300`), j = await r.json(), x = j.result && j.result[0];
+        if (!x) { msg.textContent = "No postcode found right here — type it in."; return; } f.postcode.value = x.postcode; msg.textContent = `✓ ${x.postcode}`;
+      } catch (e) { msg.textContent = "Couldn't look it up (no signal?) — type it in."; } },
+      () => { msg.textContent = "Couldn't get your location."; }, {enableHighAccuracy: true, timeout: 12000, maximumAge: 60000}); };
 });
 
 // ---------- hooks into the rest of the app ----------

@@ -564,7 +564,7 @@ route(/^#\/sync$/, () => {
       <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
       <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 11 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 14 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
