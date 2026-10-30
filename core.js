@@ -343,7 +343,7 @@ $("#fileIn").onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   let data;
   try { data = JSON.parse(await f.text()); } catch (err) { return toast("That file isn't readable.", 4000); }
-  if (data.kempner_phone_changes) return toast("That's a phone changes file — it goes into the CRM, not here.", 5000);
+  if (data.kempner_phone_changes) return absorbHomeChanges(data);
   if (data.kempner_phone_backup) return restoreBackup(data);
   if (!data.kempner_phone_snapshot || !data.tables) return toast("That isn't a Kempner snapshot file.", 4000);
   if (SNAP && data.exported_at && SNAP.exported_at && data.exported_at < SNAP.exported_at &&
@@ -362,6 +362,23 @@ $("#fileIn").onchange = async e => {
   const cleared = before - PENDING.length;
   toast(`✓ Loaded ${data.tables.companies.length} companies.${cleared ? ` ${cleared} synced item(s) cleared.` : ""}${PENDING.length ? ` ${PENDING.length} still to send.` : ""}${extra}`, 5000);
 };
+// ---------- 🏠 home laptop: full copy out, home changes back in ----------
+async function exportFullCopy() {
+  if (!SNAP) return toast("Load a PC file first");
+  if (!confirm(`Export the full CRM copy?\n\nIt has all ${SNAP.tables.companies.length} companies with their contacts, notes and actions${PENDING.length ? `, plus your ${PENDING.length} unsent item(s)` : ""}. On the laptop: Phone sync → 🏠 Open a phone copy.\n\nIt's your customer data — keep the file somewhere private and delete it when done.`)) return;
+  const data = Object.assign({}, SNAP, {kempner_full_copy: 1, copied_at: nowIso(), pending_events: PENDING});
+  await shareFile(new File([JSON.stringify(data)], `kempner_full_copy_${stamp()}.json`, {type: "application/json"}));
+}
+async function absorbHomeChanges(data) {
+  if (!data.from_home_copy) return toast("That's a phone changes file — it goes into the CRM, not here.", 5000);
+  const have = new Set(PENDING.map(e => e.id)), applied = new Set((SNAP && SNAP.applied_event_ids) || []);
+  const add = (data.events || []).filter(e => e && e.id && !have.has(e.id) && !applied.has(e.id));
+  if (!add.length) return toast("Already got those home changes — nothing new.", 4000);
+  if (!confirm(`Add ${add.length} change(s) from the home laptop?\n\nThey'll show here and go to work with your next Export changes.`)) return;
+  PENDING = PENDING.concat(add); await savePending();
+  buildIndex(); updateBadges(); render();
+  toast(`🏠 ${add.length} home change(s) added — they go to work with your next Export changes`, 5000);
+}
 // ---------- phone-only data check: entries on this phone that the PC file doesn't have ----------
 function phoneOnlyCheck(data) {
   const cos = new Map((data.tables.companies || []).map(c => [String(c.id), c])), tm = data.company_temp_map || {};

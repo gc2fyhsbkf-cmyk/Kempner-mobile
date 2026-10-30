@@ -96,6 +96,15 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - YouTube links (unlisted is fine) open in the YouTube app. **＋ Add a video** on the phone keeps the file here and sends its title to the CRM list.
 - Avoid putting videos in this GitHub repo: it's public and slow for big files.
 
+## 🏠 Working from home (occasional)
+1. Phone: Sync → Settings → **📦 Export the full CRM copy**. Get the file to the laptop (AirDrop, Drive or email).
+2. Laptop CRM: Phone sync → **🏠 Open a phone copy…**. It builds a separate home copy (your normal data on the laptop isn't touched) and shows an orange HOME COPY bar.
+3. Make your tweaks. Then **📤 Export home changes** (the CRM also offers this when you close it).
+4. Phone: Sync → 📥 Load and pick that file. The changes join your unsent items and go to work with the next Export changes. (Or import the file straight into the CRM at work.)
+- Carried: new companies, contacts, addresses, notes, meetings and actions; actions done, moved or pinned; deleted companies (the work PC asks first).
+- Not carried (redo at work): edits to existing details and older notes, new quotes and orders. The home copy tells you if there are any.
+- **↩ Back to my normal data** switches the laptop back.
+
 ## Safety nets
 - **Entries found on the phone that aren't in the PC file.** When you load a PC file, anything on the phone the PC file doesn't know about is listed (unsent items made before the PC file, items saved against a company the PC doesn't have or that now has a different name, mileage stops for missing companies). **Continue** removes just those and loads. **Wait** changes nothing. Anything added after the PC file was made is kept and not listed.
 - **🧹 Clear this phone's data** (Sync → Settings) starts fresh: unsent items, mileage stops, plans and map points go; the CRM copy, settings and card stay.

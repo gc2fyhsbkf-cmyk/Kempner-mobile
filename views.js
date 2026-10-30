@@ -617,10 +617,11 @@ route(/^#\/sync$/, () => {
       <p class="small" style="margin:0 0 6px">Your mileage, visits, day plans and card live only on this phone. Save a backup to Drive now and then; to restore, choose the backup file with 📥 Load snapshot.${META.lastBackup ? ` Last backup ${esc(ago(META.lastBackup))}.` : " No backup yet."}</p>
       <button class="btn block sec" data-backup="1">💾 Back up this phone's data</button>
       <button class="btn block sec" id="calRem" style="margin-top:8px">⏰ Weekday 5pm "send to CRM" reminder in my Calendar</button>
+      <button class="btn block sec" id="fullCopyBtn" style="margin-top:8px" ${SNAP ? "" : "disabled"}>📦 Export the full CRM copy (for the home laptop)</button>
       <button class="btn block sec" id="wipeBtn" style="margin-top:8px;color:var(--red)">🧹 Clear this phone's data and start fresh</button>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
       <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 17 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 18 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
@@ -628,6 +629,7 @@ route(/^#\/sync$/, () => {
   $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
   $("#calRem").onclick = calendarReminder;
   $("#wipeBtn").onclick = wipePhoneData;
+  $("#fullCopyBtn").onclick = exportFullCopy;
   $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
   $("#view").querySelectorAll("[data-edit-ev]").forEach(b => b.onclick = () => editEventSheet(b.dataset.editEv));
   $("#view").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
