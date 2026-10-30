@@ -421,10 +421,24 @@ function quickAddSheet(key) {
     ["📷","Photo","#db2777",`photo`],["💷","Quote","#f59e0b",`#/add/quote/${k}`],["🛒","Order","#0d9488",`#/add/order/${k}`],["✍️","Sign-off","#7c3aed",`#/sign/${k}`],
     ["👤","Contact","#64748b",`#/add/contact/${k}`],["📍","Address","#ea580c",`#/add/address/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
   openSheet(`<b style="font-size:17px">${esc(c ? c.name : "")}</b><div class="sgrid" style="margin-top:14px">${items.map(([i, l, col, href]) =>
-    href === "reorder" ? `<button data-ro="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div>`, el => {
+    href === "reorder" ? `<button data-ro="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div><button class="btn block sec" id="delCo" style="margin-top:14px;color:var(--red);font-size:14px">🗑 Delete this company</button>`, el => {
+    el.querySelector("#delCo").onclick = () => deleteCompany(key);
     el.querySelector("[data-ph]").onclick = () => { closeSheet(); takePhoto(key); };
     el.querySelector("[data-ro]").onclick = () => reorderSheet(key);
   });
+}
+
+async function deleteCompany(key) {
+  const c = IDX.co.get(key); if (!c) return;
+  if (String(key).startsWith("t:")) {   // made on this phone and never sent: just remove it and everything added to it
+    if (!confirm(`Delete ${c.name}? It was only ever on this phone, so it simply disappears (with anything you added to it).`)) return;
+    PENDING = PENDING.filter(ev => evCoKey(ev) !== key);
+    if (typeof ROAD !== "undefined") { ROAD.visits = ROAD.visits.filter(v => v.key !== key); for (const d of Object.keys(ROAD.plans)) ROAD.plans[d] = ROAD.plans[d].filter(k => k !== key); await saveRoad("visits"); await saveRoad("plans"); }
+  } else {
+    if (!confirm(`Delete ${c.name}?\n\nIt disappears from the phone now. At the next sync the PC asks before deleting it there too (it goes to the CRM's bin for 7 days). To undo before then, remove "Delete company" from the Sync list.`)) return;
+    await addEvent("company_delete", key, {name: c.name});
+  }
+  await savePending(); closeSheet(); toast(`🗑 ${c.name} deleted`); go("#/companies");
 }
 
 // ---------- NEARBY ----------
@@ -603,15 +617,17 @@ route(/^#\/sync$/, () => {
       <p class="small" style="margin:0 0 6px">Your mileage, visits, day plans and card live only on this phone. Save a backup to Drive now and then; to restore, choose the backup file with 📥 Load snapshot.${META.lastBackup ? ` Last backup ${esc(ago(META.lastBackup))}.` : " No backup yet."}</p>
       <button class="btn block sec" data-backup="1">💾 Back up this phone's data</button>
       <button class="btn block sec" id="calRem" style="margin-top:8px">⏰ Weekday 5pm "send to CRM" reminder in my Calendar</button>
+      <button class="btn block sec" id="wipeBtn" style="margin-top:8px;color:var(--red)">🧹 Clear this phone's data and start fresh</button>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
       <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 15 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 17 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
   $("#devName").onchange = async e => { META.device = e.target.value.trim(); await saveMeta(); toast("Saved"); };
   $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
   $("#calRem").onclick = calendarReminder;
+  $("#wipeBtn").onclick = wipePhoneData;
   $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
   $("#view").querySelectorAll("[data-edit-ev]").forEach(b => b.onclick = () => editEventSheet(b.dataset.editEv));
   $("#view").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {

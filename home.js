@@ -28,7 +28,7 @@ route(/^#\/home$/, () => {
   const nx = SNAP || PENDING.length ? upNext() : null, nc = nx && IDX.co.get(nx.key);
   const mc = nc ? mainContact(nx.key) : null, addr = nc ? rows("addresses", nx.key)[0] : null;
   const tiles = [["📝", "Note", "#4f46e5", "note"], ["📞", "Log call", "#0891b2", "call"], ["✅", "Action", "#16a34a", "action"],
-    ["🤝", "Visit", "#2563eb", "meeting"], ["📷", "Photo", "#db2777", "photo"], ["🏢", "New lead", "#64748b", "#/newco"], ["📍", "Nearby", "#0d9488", "#/nearby"], ["🧮", "Cost/pack", "#0f766e", "pack"]];
+    ["🤝", "Visit", "#2563eb", "meeting"], ["📷", "Photo", "#db2777", "photo"], ["🏢", "New lead", "#64748b", "#/newco"], ["🎬", "Videos", "#0d9488", "#/videos"], ["🧮", "Cost/pack", "#0f766e", "pack"]];
   v.innerHTML = `${healthBanners()}
     <div style="margin:2px 4px 10px"><div style="font-size:22px;font-weight:800">${hi}${first ? ", " + esc(first) : ""}</div>
       <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}</div></div>

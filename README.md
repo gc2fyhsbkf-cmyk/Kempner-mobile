@@ -3,7 +3,7 @@
 An offline phone companion to the Kempner CRM. It's free: no App Store and no hosting bill. Your data stays on your phone and only moves when you send a file.
 
 ## Files (all at the top level on GitHub, no folders)
-`index.html`, `reorder.html`, `card.html`, `qrcode.js`, `card.js`, `home.js`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `road.js`, `tools.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
+`index.html`, `reorder.html`, `card.html`, `qrcode.js`, `card.js`, `home.js`, `videos.js`, `core.js`, `views.js`, `forms.js`, `pdf.js`, `road.js`, `tools.js`, `sw.js`, `manifest.webmanifest`, `jspdf.umd.min.js`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `README.md`
 
 To update: on GitHub, **Add file → Upload files**, drag in all the files and **Commit**. Then open the app twice with signal.
 
@@ -90,7 +90,16 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - **✏️ Edit** an unsent note, action, visit, address or new company from the Sync list (or ✏️ on an unsent note) before it goes to the CRM.
 - Company search also looks **inside notes** ("📝 In their notes").
 
+## 🎬 Videos (Home → Videos)
+- The list comes from the CRM (🎬 Videos pill on Today): title, machine and a link if it has one. **Only the list syncs, never the video files**, so syncing stays instant.
+- To show one with no signal: ⋯ → **📎 Keep a copy**, pick it from Photos/Files. It's stored inside the app on this phone. Remove copies you no longer show; videos are big.
+- YouTube links (unlisted is fine) open in the YouTube app. **＋ Add a video** on the phone keeps the file here and sends its title to the CRM list.
+- Avoid putting videos in this GitHub repo: it's public and slow for big files.
+
 ## Safety nets
+- **Entries found on the phone that aren't in the PC file.** When you load a PC file, anything on the phone the PC file doesn't know about is listed (unsent items made before the PC file, items saved against a company the PC doesn't have or that now has a different name, mileage stops for missing companies). **Continue** removes just those and loads. **Wait** changes nothing. Anything added after the PC file was made is kept and not listed.
+- **🧹 Clear this phone's data** (Sync → Settings) starts fresh: unsent items, mileage stops, plans and map points go; the CRM copy, settings and card stay.
+- **🗑 Delete this company** (company → ＋ sheet): it vanishes from the phone. At the next import the CRM lists what the company has and asks: Continue deletes it there too (bin, 7 days), Wait imports everything else and asks again next time.
 - A banner warns when items have been on the phone too long without being sent, and when the CRM copy is a week old.
 - Importing the same file twice is harmless, because already-imported items are skipped.
-- The phone never edits or deletes CRM records. It only adds.
+- The phone never edits CRM records, and it only deletes a company when you say Continue on the PC.

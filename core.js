@@ -18,7 +18,7 @@ const KV = (() => {
       t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
     });
   }
-  return { get: k => tx("readonly", s => s.get(k)), set: (k, v) => tx("readwrite", s => s.put(v, k)) };
+  return { get: k => tx("readonly", s => s.get(k)), set: (k, v) => tx("readwrite", s => s.put(v, k)), del: k => tx("readwrite", s => s.delete(k)) };
 })();
 
 // ---------- state ----------
@@ -123,6 +123,8 @@ function buildIndex() {
   // addresses added on the phone count straight away (postcodes for Nearby, routes and mileage)
   for (const ev of PENDING) if (ev.type === "address_new") { const k = evCoKey(ev), m = IDX.by.addresses;
     if (!m.has(k)) m.set(k, []); m.get(k).push(Object.assign({id: ev.id, company_id: k, _pending: ev}, ev.data)); }
+  // companies deleted on the phone disappear straight away (the PC asks before deleting at the next sync)
+  for (const ev of PENDING) if (ev.type === "company_delete") IDX.co.delete(evCoKey(ev));
   for (const ev of PENDING) { const k = evCoKey(ev);
     if (!IDX.pend.has(k)) IDX.pend.set(k, []); IDX.pend.get(k).push(ev);
     if (ev.type === "action_done") IDX.doneIds.set(ev.data.action_id, ev);
@@ -244,6 +246,8 @@ function describe(e) {
   switch (e.type) {
     case "note": return "📝 " + (d.reference === "Phone call" ? "Call: " : "") + d.content;
     case "action_new": return `✅ ${d.note} (${niceDate(d.date)})`;
+    case "video_new": return `🎬 Video added: ${d.title}`;
+    case "company_delete": return `🗑 Delete company: ${d.name}`;
     case "visit_snooze": return d.days ? `💤 No visit suggestions for ${d.days} days` : "💤 Don't suggest visiting";
     case "address_new": return `📍 Address: ${d.lines.replace(/\n/g, ", ")}`;
     case "action_pin": return `${d.pinned ? "📌 Pinned" : "Unpinned"}: ${d.action_note}`;
@@ -346,6 +350,10 @@ $("#fileIn").onchange = async e => {
       !confirm(`This snapshot (${data.exported_at.slice(0,16)}) is OLDER than the one loaded (${SNAP.exported_at.slice(0,16)}). Load it anyway?`)) return;
   const applied = new Set(data.applied_event_ids || []), before = PENDING.length;
   PENDING = PENDING.filter(ev => !applied.has(ev.id));
+  // anything on the phone that this PC file doesn't have? → Continue (remove it) or Wait (don't load)
+  const chk = phoneOnlyCheck(data);
+  if (chk.items.length && !(await phoneOnlySheet(chk, data))) { PENDING = await KV.get("pending") || PENDING; toast("Not loaded — nothing changed", 3000); return; }
+  if (chk.items.length) await chk.remove();
   SNAP = data;
   try { await KV.set("snapshot", SNAP); await KV.set("pending", PENDING); } catch (err) { return toast("Couldn't store it: " + err.message, 6000); }
   applyTheme(); buildIndex(); updateBadges();
@@ -354,6 +362,68 @@ $("#fileIn").onchange = async e => {
   const cleared = before - PENDING.length;
   toast(`✓ Loaded ${data.tables.companies.length} companies.${cleared ? ` ${cleared} synced item(s) cleared.` : ""}${PENDING.length ? ` ${PENDING.length} still to send.` : ""}${extra}`, 5000);
 };
+// ---------- phone-only data check: entries on this phone that the PC file doesn't have ----------
+function phoneOnlyCheck(data) {
+  const cos = new Map((data.tables.companies || []).map(c => [String(c.id), c])), tm = data.company_temp_map || {};
+  const madeAt = String(data.exported_at || "").replace("T", " ");
+  const nameOf = k => { const c = cos.get(String(k)); return c ? c.name : null; };
+  const items = [];
+  for (const ev of PENDING) {
+    const id = ev.company_id != null ? String(ev.company_id) : null, after = String(ev.created_at || "").replace("T", " ") > madeAt;
+    let why = null;
+    if (id && id.startsWith("t:")) { if (!after) why = "a new company from this phone that the PC file doesn't have"; }
+    else if (id && !cos.has(id)) why = "its company isn't in the PC file";
+    else if (id && ev.company_name && nameOf(id) && norm(nameOf(id)) !== norm(ev.company_name)) why = `saved against "${ev.company_name}" — on the PC that's now "${nameOf(id)}" (test data?)`;
+    else if (!after) why = "made before this PC file, but the PC doesn't have it";
+    if (why) items.push({kind: "pending", ev, label: describe(ev), co: ev.company_name || "", why});
+  }
+  const road = typeof ROAD !== "undefined" ? ROAD : null, badVisits = [], badPlans = [];
+  if (road) {
+    for (const v of road.visits) { if (!v.key || String(v.key).startsWith("t:")) continue;
+      const nm = nameOf(v.key);
+      if (!nm) { badVisits.push(v); items.push({kind: "visit", label: `Mileage stop: ${v.name} · ${niceDate(v.date)}`, co: v.name, why: "that company isn't in the PC file"}); }
+      else if (v.name && norm(nm) !== norm(v.name)) { badVisits.push(v); items.push({kind: "visit", label: `Mileage stop: ${v.name} · ${niceDate(v.date)}`, co: v.name, why: `on the PC that number is now "${nm}" (test data?)`}); } }
+    for (const [d, keys] of Object.entries(road.plans)) { if (d < localDate()) continue;
+      for (const k of keys) if (!String(k).startsWith("t:") && !cos.has(String(k))) { badPlans.push([d, k]); items.push({kind: "plan", label: `Plan stop on ${niceDate(d)}`, co: (IDX.co.get(String(k)) || {}).name || "", why: "that company isn't in the PC file"}); } }
+  }
+  return {items, async remove() {
+    const drop = new Set(items.filter(x => x.ev).map(x => x.ev.id)), gone = new Set(items.filter(x => x.ev && String(x.ev.company_id || "").startsWith("t:")).map(x => String(x.ev.company_id)));
+    PENDING = PENDING.filter(ev => !drop.has(ev.id) && !gone.has(String(ev.company_id))); await KV.set("pending", PENDING);
+    if (road) {
+      road.visits = road.visits.filter(v => !badVisits.includes(v));
+      for (const [d, k] of badPlans) road.plans[d] = (road.plans[d] || []).filter(x => String(x) !== String(k));
+      for (const [d, keys] of Object.entries(road.plans)) road.plans[d] = keys.filter(k => !gone.has(String(k)));
+      await KV.set("road_visits", road.visits); await KV.set("road_plans", road.plans);
+    }
+  }};
+}
+function phoneOnlySheet(chk, data) {
+  return new Promise(resolve => {
+    let done = false; const fin = v => { if (done) return; done = true; closeSheet(); resolve(v); };
+
+    openSheet(`<b style="font-size:17px">📱 Entries found on the phone that aren't in this PC file</b>
+      <div class="small" style="margin:4px 0 8px">PC file saved ${esc(String(data.exported_at || "").slice(0, 16).replace("T", " "))}. If any of these are real, tap Wait and send them to the PC first (Sync → Export changes). Things you've added since the PC file was made aren't listed — they're kept.</div>
+      <div class="list" style="max-height:46vh;overflow:auto">${chk.items.map(x => `<div class="row" style="align-items:flex-start"><div class="m"><div class="t" style="white-space:normal;font-size:14px">${esc(x.label)}</div>
+        <div class="s" style="white-space:normal">${x.co ? esc(x.co) + " · " : ""}${esc(x.why)}</div></div></div>`).join("")}</div>
+      <button class="btn block red" id="poGo" style="margin-top:10px">Continue — remove these from the phone and load</button>
+      <button class="btn block sec" id="poWait" style="margin-top:8px">Wait — don't load yet</button>`, el => {
+      el.querySelector("#poGo").onclick = () => { if (confirm(`Remove ${chk.items.length} item(s) from the phone? This can't be undone.`)) fin(true); };
+      el.querySelector("#poWait").onclick = () => fin(false);
+      const bk = document.querySelector("#sheet .bk"); if (bk) bk.addEventListener("click", () => fin(false), {once: true});
+    });
+  });
+}
+// 🧹 start fresh: clears everything that only lives on the phone (keeps your settings, card and the CRM copy)
+async function wipePhoneData() {
+  if (!confirm("Clear this phone's own data?\n\nRemoves: unsent items, mileage stops, day plans, recent list and cached map points.\nKeeps: the CRM copy, your settings, home/office postcodes, rate and business card.")) return;
+  if (!confirm("Sure? Anything not sent to the PC will be lost.")) return;
+  PENDING = []; await KV.set("pending", PENDING);
+  if (typeof ROAD !== "undefined") { ROAD.visits = []; ROAD.plans = {}; ROAD.mileage = {}; ROAD.dist = {}; ROAD.pc = {seen: {}, notes: {}, merged: ""};
+    for (const k of ["visits", "plans", "mileage", "dist", "pc"]) await KV.set("road_" + k, ROAD[k]); }
+  GEO = {}; await KV.set("geo", GEO);
+  delete META.recent; delete META.cpDrafts; await saveMeta();
+  buildIndex(); updateBadges(); render(); toast("🧹 Phone data cleared — load the latest PC file", 4000);
+}
 function pickSnapshot() { const f = $("#fileIn"); f.value = ""; f.click(); }
 
 // ---------- 💾 backup of what only lives on this phone (mileage, visits, plans, card, unsent items) ----------
