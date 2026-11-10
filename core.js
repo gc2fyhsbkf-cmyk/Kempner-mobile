@@ -27,7 +27,7 @@ let META = { device: "", user: "", filter: "mine", sort: "az", lastExport: "", r
 
 const CO_TABLES = ["company_owners","company_tags","people","addresses","actions","meetings","notes","quick_notes",
   "competitor_notes","quotes","film_orders","owned_equipment","company_known_film_specs","company_pack_profiles",
-  "call_off_agreements","company_film_trials","reorder_orders"];
+  "call_off_agreements","company_film_trials","reorder_orders","equipment_services","equipment_spares","quote_pdfs"];
 const STATUS_COL = {URGENT:"#e8192c",WARM:"#f59e0b",COLD:"#3b82f6",OK:"#16a34a",DEAD:"#6b7280",CONTACT:"#8000ff",ARCHIVED:"#aaa",NONE:"#dde1ea"};
 const FLAG_PREFIX = {URGENT:"1RED", WARM:"2YELLOW", OK:"3GREEN", COLD:"4NONE", NONE:"4NONE"};
 const FLAG_EMOJI = {"1RED":"🔴","2YELLOW":"🟠","3GREEN":"🟢","4NONE":""};
@@ -135,9 +135,22 @@ const rows = (table, key) => (IDX.by[table] && IDX.by[table].get(String(key))) |
 const pend = (key, type) => (IDX.pend.get(String(key)) || []).filter(e => !type || e.type === type);
 const view = key => (SNAP && SNAP.views && SNAP.views[String(key)]) || null;
 const phoneActionId = ev => "ph" + ev.id.replace(/-/g, "").slice(0, 8);
-function companyStatus(c) { // latest status chosen on the phone wins for display
-  const st = pend(c._key, "note").map(e => e.data.status).filter(s => s && s !== "NONE").pop();
+function companyStatus(c) { // latest temperature chosen on the phone wins for display
+  const evs = pend(c._key).filter(e => (e.type === "note" && e.data.status && e.data.status !== "NONE") || e.type === "temperature")
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  const st = evs.length ? evs[evs.length - 1].data.status : "";
   return st || c.status || "NONE";
+}
+function machineInterests(key) { // ⭐ machines this customer is interested in (from the PC + added here)
+  const c = IDX.co.get(String(key)); if (!c) return [];
+  const pc = ((SNAP && SNAP.machine_interest) || []).filter(r => String(r.company_id) === String(c.id)).map(r => ({product: r.product, note: r.note, product_id: r.product_id}));
+  const ph = pend(key, "machine_interest").map(e => ({product: e.data.product, note: e.data.note, product_id: e.data.product_id, _pending: 1}));
+  const seen = new Set(); return pc.concat(ph).filter(x => { const k = String(x.product).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+function machineInterestCount(name) { // how many customers are interested in a machine
+  const n = String(name || "").toLowerCase();
+  return ((SNAP && SNAP.machine_interest) || []).filter(r => String(r.product).toLowerCase() === n).length
+    + PENDING.filter(e => e.type === "machine_interest" && String(e.data.product).toLowerCase() === n).length;
 }
 function myUserId() { const n = META.user || (SNAP && SNAP.current_user) || ""; for (const [id, x] of IDX.users) if (x === n) return id; return null; }
 function isMine(c) {
@@ -147,7 +160,8 @@ function isMine(c) {
   return rows("company_owners", c.id).some(o => String(o.user_id) === uid);
 }
 function people(key) {
-  const out = rows("people", key).map(p => Object.assign({}, p, {
+  // contacts marked "left" on the PC are kept off the phone's contact lists
+  const out = rows("people", key).filter(p => !p.left_on).map(p => Object.assign({}, p, {
     numbers: IDX.person.phone_numbers.get(String(p.id)) || [],
     emails: [...new Set([p.email, ...(IDX.person.person_emails.get(String(p.id)) || []).map(e => e.email)].filter(Boolean))],
     dates: IDX.person.person_dates.get(String(p.id)) || [] }));
@@ -209,6 +223,26 @@ function lineCalc(lines, vatRate, ship) {
 }
 const productList = () => Object.entries((SNAP && SNAP.products) || {}).map(([id, p]) => ({id, name: p.name, section: p.section || ""})).sort((a, b) => a.name.localeCompare(b.name));
 const productByName = n => { n = String(n || "").trim().toLowerCase(); return productList().find(p => p.name.toLowerCase() === n) || null; };
+// 📋 machine data sheets from the PC (list price, max film, spares…)
+function machineSheet(name) {
+  const ms = (SNAP && SNAP.machine_sheets) || {}, n = String(name || "").toLowerCase();
+  for (const [k, v] of Object.entries(ms)) if (k.toLowerCase() === n) return v;
+  return null;
+}
+const listPrice = name => { const s = machineSheet(name); return s && +String(s.list_price || "").replace(/[£,]/g, "") || ""; };
+// 📦 an in-stock call-off for this product (film arrived, rolls left)
+function inStockCallOff(key, pid) {
+  if (!pid) return null;
+  for (const a of rows("call_off_agreements", key)) {
+    if (String(a.product_id) !== String(pid) || ["completed", "cancelled"].includes(a.status)) continue;
+    if (!(a.film_arrived_date || ["ready_awaiting_drawdown", "active"].includes(a.status))) continue;
+    const dd = (IDX.drawdowns.get(String(a.id)) || []).reduce((s, d) => s + (+d.quantity_rolls || 0), 0)
+      + pend(key, "order_new").reduce((s, e) => s + (e.data.lines || []).filter(l => String(l.calloff_id) === String(a.id)).reduce((x, l) => x + (+l.quantity || 0), 0), 0);
+    const left = (+a.total_quantity_rolls || 0) - dd;
+    if (left > 0) return Object.assign({}, a, {left});
+  }
+  return null;
+}
 function lastPrice(key, name) {
   const v = view(key) || {}, n = String(name || "").toLowerCase();
   for (const g of v.order_groups || []) for (const l of g.lines || []) if (String(l.description).toLowerCase() === n && l.unit_price) return l.unit_price;
@@ -247,6 +281,10 @@ function describe(e) {
     case "note": return "📝 " + (d.reference === "Phone call" ? "Call: " : "") + d.content;
     case "action_new": return `✅ ${d.note} (${niceDate(d.date)})`;
     case "video_new": return `🎬 Video added: ${d.title}`;
+    case "equipment_service": return `🔧 Service logged: ${d.machine || "machine"} · ${niceDate(d.date)}`;
+    case "equipment_spare": return `🔩 Spares: ${num(d.quantity)} × ${d.name} (${d.machine || "machine"})`;
+    case "sticky_new": return `📌 Sticky: ${String(d.text || "").slice(0, 60)}`;
+    case "sample_left": return `🧪 Samples left: ${num(d.quantity)} × ${d.spec}${d.chase_date ? " · chase " + niceDate(d.chase_date) : ""}`;
     case "company_delete": return `🗑 Delete company: ${d.name}`;
     case "visit_snooze": return d.days ? `💤 No visit suggestions for ${d.days} days` : "💤 Don't suggest visiting";
     case "address_new": return `📍 Address: ${d.lines.replace(/\n/g, ", ")}`;
@@ -262,6 +300,8 @@ function describe(e) {
     case "photo": return `📷 Photo${d.caption ? ": " + d.caption : ""}`;
     case "pack_save": return `📦 Pack ${d.profile_id ? "updated" : "added"}: ${d.name} (${num(d.length_mm)}×${num(d.width_mm)}×${num(d.height_mm)} mm)`;
     case "segment_set": return d.segment ? `🗂 Move to ${d.segment}` : "⬆ Promote to the main list";
+    case "temperature": return `🌡 Temperature → ${({URGENT: "Hot", WARM: "Warm", COLD: "Cold", OK: "OK", CONTACT: "To contact", DEAD: "Dead", NONE: "Not set"})[d.status] || d.status}`;
+    case "machine_interest": return `⭐ Interested in ${d.product || "a machine"}${d.note ? " — " + d.note : ""}`;
   }
   return e.type;
 }
@@ -274,7 +314,7 @@ let _lastHash = "";
 function render() {
   const h = location.hash || "#/";
   if (h !== _lastHash) window.scrollTo(0, 0); _lastHash = h;
-  $("#fab").classList.add("hidden"); $("#topRight").innerHTML = "";
+  $("#fab").classList.add("hidden"); $("#topRight").innerHTML = ""; _addAction = null;
   closeSheet();
   for (const [re, fn] of routes) { const m = h.match(re); if (m) { fn(...m.slice(1).map(x => x == null ? x : decodeURIComponent(x))); return; } }
   go("#/");
@@ -284,9 +324,18 @@ function setHeader(title, back, tab) {
   $("#brand").classList.toggle("hidden", !!back);
   $("#backBtn").classList.toggle("hidden", !back);
   $("#backBtn").onclick = () => history.length > 1 ? history.back() : go(back);
+  const mb = $("#moreBtn"); if (mb) mb.classList.toggle("hidden", !!back && tab !== "more");
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.tab === tab));
 }
-function showFab(fn) { const f = $("#fab"); f.classList.remove("hidden"); f.onclick = fn; }
+// the big + in the middle of the tab bar: whatever this screen wants to add (a page can set it
+// with showFab), else "add something for…" with the customer you're looking at already picked
+let _addAction = null;
+function showFab(fn) { _addAction = fn; }
+function _currentCoKey() { const m = (location.hash || "").match(/^#\/(?:c|snap|brief|call|pack|samples|sign)\/([^/?]+)/); return m ? decodeURIComponent(m[1]) : null; }
+document.addEventListener("click", e => {
+  if (e.target.closest && e.target.closest("#addTab")) { e.preventDefault(); if (_addAction) _addAction(); else quickAddSheet(_currentCoKey()); }
+  if (e.target.closest && e.target.closest("#moreBtn")) { e.preventDefault(); go("#/more"); }
+});
 function updateBadges() {
   const n = PENDING.length, b = $("#syncBdg");
   b.textContent = n; b.classList.toggle("hidden", !n);
@@ -466,10 +515,10 @@ const backupDue = () => { const last = META.lastBackup ? (Date.now() - new Date(
 // A weekday "send your changes" reminder in the iPhone Calendar (web apps can't send their own notifications without a server).
 function calendarReminder() {
   const t = META.remindTime || "17:00", start = nextWorkday(0 + 0).replace(/-/g, "") + "T" + t.replace(":", "") + "00";
-  const url = location.href.split("#")[0] + "#/sync";
+  const url = location.href.split("#")[0] + "#/wrap";
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kempner Mobile//EN", "BEGIN:VEVENT", `UID:kempner-send-reminder@kempner-mobile`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
     `DTSTART:${start}`, "DURATION:PT10M", "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "SUMMARY:📤 Send today's changes to the CRM",
-    `DESCRIPTION:Open Kempner Mobile → Sync → Export changes (and save a backup on Fridays). ${url}`, `URL:${url}`,
+    `DESCRIPTION:Open Kempner Mobile → 🌙 Wrap up the day (log any visits\\, then Export changes). ${url}`, `URL:${url}`,
     "BEGIN:VALARM", "TRIGGER:PT0M", "ACTION:DISPLAY", "DESCRIPTION:Send today's changes to the CRM", "END:VALARM", "END:VEVENT", "END:VCALENDAR"];
   shareFile(new File([lines.join("\r\n")], "Kempner send reminder.ics", {type: "text/calendar"}));
 }

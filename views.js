@@ -22,26 +22,27 @@ function welcomeCard() {
 }
 
 // ---------- shared list rows ----------
-function listSub(c) {
-  const v = view(c._key) || {}, parts = [];
-  const cust = v.customer || (people(c._key)[0] || {}).name;
-  if (cust) parts.push(esc(cust));
+const TEMP_COL = {URGENT: "#e74c3c", WARM: "#f39c12", COLD: "#3498db", OK: "#27ae60", CONTACT: "#8e44ad", DEAD: "#7f8c8d"};
+const TEMP_NAME = {URGENT: "Hot", WARM: "Warm", COLD: "Cold", OK: "OK", CONTACT: "To contact", DEAD: "Dead", NONE: "Not set"};
+function listSub(c) { // [contact line, next-action badge html]
+  const v = view(c._key) || {};
+  const _gone = new Set(rows("people", c._key).filter(p => p.left_on).map(p => norm(p.name)));
+  const cust = (v.customer && !_gone.has(norm(v.customer)) ? v.customer : "") || (mainContact(c._key) || {}).name;
   const open = openActions(c._key), over = open.filter(a => a.date && dayDiff(a.date) < 0);
-  let alert = false;
-  if (over.length) { parts.push(`⚠ ${over.length} overdue`); alert = true; }
+  let badge = "";
+  if (over.length) badge = `<span class="nb red">⚠ ${over.length}</span>`;
   else if (open.length) { const nd = Math.min(...open.map(a => dayDiff(a.date)));
-    if (nd === 0) parts.push("⏰ today"); else if (nd === 1) parts.push("📅 tomorrow"); else if (nd < 7) parts.push(`📅 ${nd}d`); }
-  return [parts.join("  ·  "), alert];
+    if (nd === 0) badge = '<span class="nb amber">⏰ today</span>'; else if (nd === 1) badge = '<span class="nb">tomorrow</span>'; else if (nd < 7) badge = `<span class="nb">${nd}d</span>`; }
+  return [cust ? "👤 " + esc(cust) : "", badge];
 }
 function coRow(c, extraRight = "") {
   if (isQuiet(c)) return quietRow(c, extraRight);
-  const pc = pend(c._key).length, v = view(c._key) || {}, [sub, alert] = listSub(c), st = companyStatus(c);
+  const pc = pend(c._key).length, [sub, badge] = listSub(c), st = companyStatus(c);
   const tags = rows("company_tags", c._key).slice(0, 3);
-  return `<a class="row" href="${coHref(c._key)}"><span class="score ${scoreCls(v.score)}">${v.score == null ? "" : esc(v.score)}</span>
-    <div class="m"><div class="t">${c.pinned ? "★ " : ""}${esc(c.name)}${c._pending ? '<span class="badge">new</span>' : pc ? `<span class="badge">${pc}</span>` : ""}</div>
-    ${sub ? `<div class="s ${alert ? "alert" : ""}">${sub}</div>` : ""}
-    ${tags.length ? `<div style="margin-top:2px">${tags.map(t => `<span class="chip" style="font-size:10.5px;padding:1px 7px">${esc(t.tag)}</span>`).join("")}</div>` : ""}</div>
-    ${extraRight}<span class="dot" style="background:${esc(STATUS_COL[st] || v.dot || "#dde1ea")}"></span></a>`;
+  return `<a class="row corow" href="${coHref(c._key)}" style="border-left:4px solid ${TEMP_COL[st] || "transparent"}">
+    <div class="m"><div class="t2"><span class="nm">${c.pinned ? "⭐ " : ""}${esc(c.name)}${c._pending ? '<span class="badge">new</span>' : pc ? `<span class="badge">${pc}</span>` : ""}</span>${badge}</div>
+    ${sub || tags.length ? `<div class="s">${sub}${tags.length ? `${sub ? "  ·  " : ""}${tags.map(t => esc(t.tag)).join(", ")}` : ""}</div>` : ""}</div>
+    ${extraRight}</a>`;
 }
 function quietRow(c, extraRight = "") { // Lobby leads: no score, no warnings — what it is and why it's worth a try
   const li = leadInfo(c), pc = pend(c._key).length, seg = segOf(c);
@@ -61,11 +62,11 @@ function actionRow(c, a, showCo = true) {
 document.addEventListener("click", e => { const b = e.target.closest("[data-push]"); if (!b) return; e.preventDefault(); e.stopPropagation();
   const [k, id] = b.dataset.push.split("|"); pushSheet(k, id); });
 function moveAllSheet(list) {
-  const opts = [["Tomorrow", nextWorkday(1)], ["Next Monday", nextMonday()], ["In a week", nextWorkday(7)]];
   openSheet(`<b style="font-size:17px">⏭ Move all overdue</b><div class="small" style="margin:4px 0 8px">Untick any you want to keep where they are.</div>
-    <div class="list" style="max-height:44vh;overflow:auto">${list.map(([c, a], i) => `<label class="row" style="gap:10px"><input type="checkbox" data-mi="${i}" checked style="transform:scale(1.3)"><div class="m"><div class="t" style="font-size:14px">${esc(a.note)}</div><div class="s">${esc(c.name)} · ${esc(niceDate(a.date))}</div></div></label>`).join("")}</div>
-    <div class="qgrid" style="grid-template-columns:repeat(3,1fr)">${opts.map(([l, d]) => `<button class="fchip" data-to="${d}">${l}<br><span class="small">${esc(niceDate(d))}</span></button>`).join("")}</div>`, el => {
+    <div class="list" style="max-height:34vh;overflow:auto">${list.map(([c, a], i) => `<label class="row" style="gap:10px"><input type="checkbox" data-mi="${i}" checked style="transform:scale(1.3)"><div class="m"><div class="t" style="font-size:14px">${esc(a.note)}</div><div class="s">${esc(c.name)} · ${esc(niceDate(a.date))}</div></div></label>`).join("")}</div>
+    ${moveGrid(true)}`, el => {
     el.querySelectorAll("[data-to]").forEach(b => b.onclick = async () => {
+      b.dataset.to = weekendCheck(b.dataset.to);
       const picked = [...el.querySelectorAll("[data-mi]")].filter(x => x.checked).map(x => list[+x.dataset.mi]);
       if (!picked.length) return toast("Nothing ticked");
       for (const [c, a] of picked) {
@@ -75,13 +76,33 @@ function moveAllSheet(list) {
       await savePending(); closeSheet(); toast(`Moved ${picked.length} to ${niceDate(b.dataset.to)}`); render(); });
   });
 }
+// the same date buttons as the PC's 📅 Move picker
+function moveChoices(showToday = true) {
+  const d0 = new Date(), add = n => { const d = new Date(d0); d.setDate(d.getDate() + n); return localDate(d); };
+  const plusMonth = () => { const d = new Date(d0); d.setMonth(d.getMonth() + 1); return localDate(d); };
+  const mon = new Date(d0); mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7));
+  const nw = ["Mon", "Tue", "Wed", "Thu", "Fri"].map((l, i) => { const d = new Date(mon); d.setDate(d.getDate() + i); return [l, localDate(d)]; });
+  return {soon: (showToday ? [["Today", add(0)]] : []).concat([["Tomorrow", add(1)], ["+2 days", add(2)], ["+3 days", add(3)], ["+4 days", add(4)]]),
+          later: [["+1 week", add(7)], ["+2 weeks", add(14)], ["+1 month", plusMonth()]], next: nw};
+}
+const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
+function moveGrid(showToday = true) {
+  const ch = moveChoices(showToday), btn = ([l, d]) => `<button class="fchip mvb ${isWeekend(d) ? "wk" : ""}" data-to="${d}">${l}<br><span class="small">${esc(niceDate(d))}${isWeekend(d) ? " ⚠" : ""}</span></button>`;
+  return `<div class="mvh">SOON</div><div class="qgrid mv5">${ch.soon.map(btn).join("")}</div>
+    <div class="mvh">LATER</div><div class="qgrid mv5">${ch.later.map(btn).join("")}</div>
+    <div class="mvh">NEXT WEEK</div><div class="qgrid mv5">${ch.next.map(btn).join("")}</div>`;
+}
+function weekendCheck(date) { // a Saturday/Sunday asks first, offering the Monday instead
+  if (!isWeekend(date)) return date;
+  const d = new Date(date + "T12:00:00"), mon = new Date(d); mon.setDate(d.getDate() + (d.getDay() === 6 ? 2 : 1));
+  return confirm(`${niceDate(date)} is a weekend.\n\nOK = keep it on the weekend\nCancel = use Monday ${niceDate(localDate(mon))} instead`) ? date : localDate(mon);
+}
 function nextMonday() { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return localDate(d); }
 function pushSheet(key, aid) {
   const c = IDX.co.get(key), a = actions(key).find(x => x.id === aid); if (!c || !a) return toast("Action not found");
-  const opts = [["Tomorrow", nextWorkday(1)], ["In 2 days", nextWorkday(2)], ["Next Monday", nextMonday()], ["In a week", nextWorkday(7)], ["In 2 weeks", nextWorkday(14)], ["In a month", nextWorkday(30)]];
   openSheet(`<b style="font-size:17px">⏭ Move this action</b>
     <div class="card" style="margin-top:8px"><div class="small">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""} · ${esc(c.name)}</div><div style="font-weight:650">${esc(a.note)}</div></div>
-    <div class="qgrid">${opts.map(([l, d]) => `<button class="fchip" data-to="${d}">${l}<br><span class="small">${esc(niceDate(d))}</span></button>`).join("")}</div>
+    ${moveGrid(true)}
     <div class="two"><div><label class="f">Or pick a date</label><input class="f" type="date" id="pDate" value="${esc(a.date && dayDiff(a.date) > 0 ? a.date : nextWorkday(1))}"></div>
       <div><label class="f">Time (optional)</label><input class="f" type="time" id="pTime" value="${esc(a.time || "")}"></div></div>
     <label class="f">Why? (optional)</label><input class="f" id="pWhy" placeholder="e.g. They're away until Monday">
@@ -96,7 +117,7 @@ function pushSheet(key, aid) {
       if (a._pending) { a._pending.data.date = date; a._pending.data.time = time; await savePending(); }   // not synced yet: just change it
       else await addEvent("action_move", key, {action_id: a.id, action_note: a.note, date, time, old_date: a.date || "", reason});
       closeSheet(); toast(`Moved to ${niceDate(date)}`); render(); };
-    el.querySelectorAll("[data-to]").forEach(b => b.onclick = () => move(b.dataset.to));
+    el.querySelectorAll("[data-to]").forEach(b => b.onclick = () => move(weekendCheck(b.dataset.to)));
     el.querySelector("#pGo").onclick = () => move(el.querySelector("#pDate").value);
   });
 }
@@ -129,7 +150,7 @@ route(/^#\/$/, () => {
   mt.sort((x, y) => (x[1].date + (x[1].time || "")).localeCompare(y[1].date + (y[1].time || "")));
   const hr = new Date().getHours(), who = (META.user || (SNAP && SNAP.current_user) || "").split(" ")[0];
   const h = [];
-  h.push(`<div style="margin:6px 4px 10px"><div style="font-size:24px;font-weight:800">${hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}${who ? ", " + esc(who) : ""}</div>
+  h.push(`<div style="margin:6px 4px 14px"><div style="font-size:29px;font-weight:800;letter-spacing:-.025em;line-height:1.1">${hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening"}${who ? ", " + esc(who) : ""}</div>
     <div class="small">${DOW[new Date().getDay()]} ${new Date().getDate()} ${MON[new Date().getMonth()]} · ${cos.length} ${META.filter === "all" ? "companies" : "of your companies"}</div></div>`);
   h.push(healthBanners());
   h.push(`<div id="nearStop"></div>`);
@@ -204,19 +225,21 @@ route(/^#\/companies$/, () => {
       <button class="fchip ${META.filter !== "all" ? "on" : ""}" data-f="mine">Mine</button>
       <button class="fchip ${META.filter === "all" ? "on" : ""}" data-f="all">Everyone</button>
       <select class="fchip" id="stSel"><option value="">Any status</option>${sts.map(s => `<option ${coStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-      <select class="fchip" id="sortSel">${[["az","A–Z"],["due","Most overdue"],["score","Health score"],["recent","Recently updated"]].map(([k, l]) => `<option value="${k}" ${META.sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select class="fchip" id="sortSel">${[["az","A–Z"],["due","Most overdue"],["score","Health score"],["recent","Recently updated"],["added","Newest added"]].map(([k, l]) => `<option value="${k}" ${META.sort === k ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <select class="fchip" id="addSel">${[["","🆕 Added: any time"],["week","🆕 This week"],["lastweek","🆕 Last week"],["30","🆕 Last 30 days"]].map(([k, l]) => `<option value="${k}" ${coAdded === k ? "selected" : ""}>${l}</option>`).join("")}</select>
     </div><div id="coBody"></div>`;
   const q = $("#q"); q.oninput = () => { coQuery = q.value; coLimit = 80; coBody(); };
   v.querySelectorAll("[data-f]").forEach(b => b.onclick = async () => { META.filter = b.dataset.f; await saveMeta(); render(); });
   v.querySelectorAll("[data-seg]").forEach(b => b.onclick = async () => { META.seg = b.dataset.seg; await saveMeta(); render(); });
   $("#stSel").onchange = e => { coStatus = e.target.value; coBody(); };
   $("#sortSel").onchange = async e => { META.sort = e.target.value; await saveMeta(); coBody(); };
+  $("#addSel").onchange = e => { coAdded = e.target.value; coBody(); };
   coBody();
-  showFab(() => go("#/newco"));
 });
 function coBody() {
   let list = scope();
   if (coStatus) list = list.filter(c => companyStatus(c) === coStatus);
+  if (coAdded) { const r = addedRange(coAdded); list = list.filter(c => { const d = addedOn(c); return d && d >= r[0] && d < r[1]; }); }
   const q = coQuery.trim().toLowerCase();
   if (!q) list = list.filter(c => segOf(c) === (META.seg || ""));  // a search looks across every tab
   let noteHits = new Map();
@@ -232,18 +255,63 @@ function coBody() {
     due: (a, b) => overdue(b) - overdue(a) || a.name.localeCompare(b.name),
     score: (a, b) => ((view(a._key) || {}).score ?? 50) - ((view(b._key) || {}).score ?? 50),
     recent: (a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")),
+    added: (a, b) => addedOn(b).localeCompare(addedOn(a)),
   };
   list.sort(q ? ((a, b) => (b.name.toLowerCase().startsWith(q)) - (a.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name)) : (sorters[META.sort] || sorters.az));
   const lobbyHint = !q && META.seg === LOBBY ? `<div class="small" style="margin:6px 4px">Leads to try. No reminders or health scores here; open one and tap <b>⬆ Promote</b> once they're a real customer.</div>` : "";
   const snip = (txt, t) => { const s = String(txt || ""), i = s.toLowerCase().indexOf(t); const a = Math.max(0, i - 30);
     return (a ? "…" : "") + esc(s.slice(a, i)) + "<b>" + esc(s.slice(i, i + t.length)) + "</b>" + esc(s.slice(i + t.length, i + t.length + 50)) + "…"; };
-  $("#coBody").innerHTML = `${lobbyHint}<h2>${list.length} ${list.length === 1 ? "company" : "companies"}</h2>
+  let numHits = "";
+  if (q && digits(q).length >= 5) { const qd = digits(q), hits = [];
+    for (const c of scope()) { for (const p of people(c._key)) for (const nb of p.numbers) if (digits(nb.number).includes(qd)) hits.push({c, p, nb}); if (hits.length >= 3) break; }
+    numHits = hits.map(h => `<a class="banner soft" href="#/snap/${encodeURIComponent(h.c._key)}" style="margin:8px 0 0">📞 <span><b>${esc(h.nb.number)}</b> is <b>${esc(h.p.name)}</b> at ${esc(h.c.name)}</span><span class="chev">›</span></a>`).join(""); }
+  $("#coBody").innerHTML = `${numHits}${lobbyHint}<h2>${list.length} ${list.length === 1 ? "company" : "companies"}</h2>
     <div class="list">${list.slice(0, coLimit).map(c => coRow(c)).join("") || (noteHits.size ? "" : '<div class="empty">Nothing matches.</div>')}</div>
     ${noteHits.size ? `<h2>📝 In their notes <span class="r small">${noteHits.size}</span></h2><div class="list">${[...noteHits.values()].map(({c, n}) => `<a class="row" href="${coHref(c._key)}/notes"><div class="m"><div class="t">${esc(c.name)}</div>
       <div class="s" style="white-space:normal">${niceDate(n.date)} · ${snip(n.content, q.split(/\s+/)[0])}</div></div><span class="chev">›</span></a>`).join("")}</div>` : ""}
     ${list.length > coLimit ? `<button class="btn sec block" id="more">Show ${Math.min(200, list.length - coLimit)} more</button>` : ""}`;
   const m = $("#more"); if (m) m.onclick = () => { coLimit += 200; coBody(); };
 }
+
+// 🆕 when a company was added (phone-made ones count from when you made them)
+let coAdded = "";
+const addedOn = c => String(c._pending ? (c.updated_at || "") : (c.created_at || "")).slice(0, 10);
+function addedRange(k) {
+  const t = new Date(), day = 864e5, d0 = new Date(t.getFullYear(), t.getMonth(), t.getDate()), mon = new Date(d0 - ((d0.getDay() + 6) % 7) * day), tom = new Date(+d0 + day);
+  if (k === "week") return [localDate(mon), localDate(tom)];
+  if (k === "lastweek") return [localDate(new Date(mon - 7 * day)), localDate(mon)];
+  return [localDate(new Date(d0 - 29 * day)), localDate(tom)];
+}
+// 🔧 one machine on a customer's Equipment tab: quiet facts, service, spares, videos, data sheet
+function machineItem(key, e) {
+  const isFilm = e.machine_type === "film", sheet = machineSheet(e.name) || {};
+  const svc = rows("equipment_services", key).filter(x => String(x.equipment_id) === String(e.id)).sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
+  const svcP = pend(key, "equipment_service").filter(x => String(x.data.equipment_id) === String(e.id));
+  const sp = rows("equipment_spares", key).filter(x => String(x.equipment_id) === String(e.id));
+  const spP = pend(key, "equipment_spare").filter(x => String(x.data.equipment_id) === String(e.id));
+  const spLast = new Map(); for (const x of sp.concat(spP.map(p => ({name: p.data.name, order_date: p.data.date, quantity: p.data.quantity, _p: 1})))) {
+    const k = String(x.name).toLowerCase(); if (!spLast.has(k) || String(x.order_date) > String(spLast.get(k).order_date)) spLast.set(k, x); }
+  const inst = e.install_date || "", age = inst ? (/^\d{4}$/.test(inst) ? `c. ${inst}` : `${niceDate(inst)}`) : "";
+  const lastSvc = svcP.length ? svcP[svcP.length - 1].data.date : (svc[0] || {}).service_date;
+  const facts = [age && "installed " + age, e.serial_no && "S/N " + e.serial_no, lastSvc && "last serviced " + niceDate(lastSvc),
+    e.warranty_end && e.warranty_end >= localDate() && "warranty to " + niceDate(e.warranty_end),
+    (sheet.cap_max_roll_carriage_mm || sheet.cap_max_width) && `max roll ${num(sheet.cap_max_roll_carriage_mm || sheet.cap_max_width)}mm`,
+    sheet.cap_cycles_per_min && `${num(sheet.cap_cycles_per_min)}/min`, e.condition].filter(Boolean);
+  const vids = ((SNAP && SNAP.videos) || []).concat(META.videos || []).filter(v => { const nm = String(e.name + " " + (e.machine_type || "")).toLowerCase().replace(/[^a-z0-9]/g, "");
+    return String(v.tags || "").split(",").map(t => t.toLowerCase().replace(/[^a-z0-9]/g, "")).some(t => t && nm.includes(t)); });
+  const k = encodeURIComponent(key);
+  return `<div class="item"><b>${esc(e.name)}</b>${e.quantity > 1 ? ` ×${esc(e.quantity)}` : ""}
+    <span class="chip">${isFilm ? "🎞 film" : "⚙ machine"}</span>${e.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip">theirs</span>'}
+    ${e.manufacturer ? `<div class="small">${esc(e.manufacturer)}</div>` : ""}
+    ${facts.length ? `<div class="small" style="color:var(--sub)">${facts.map(esc).join(" · ")}</div>` : ""}
+    ${svcP.length ? `<div class="small">🔧 ${svcP.map(p => niceDate(p.data.date)).join(", ")} ${pendBadge({_pending: 1})}</div>` : ""}
+    ${spLast.size ? `<div class="small">🔩 ${[...spLast.values()].slice(0, 4).map(x => `${esc(x.name)} — ${niceDate(x.order_date)} (×${num(x.quantity)})${x._p ? " ⏳" : ""}`).join(" · ")}</div>` : ""}
+    ${e.notes ? `<div class="small">${esc(e.notes)}</div>` : ""}${e.fit_notes ? `<div class="small">${esc(e.fit_notes)}</div>` : ""}
+    ${vids.length ? `<div style="margin-top:6px">${vids.slice(0, 3).map(v => `<button class="btn sm sec" style="font-size:12px;padding:4px 9px;margin:2px 4px 2px 0" data-vid="${esc(v.phone_id || (String(v.id).startsWith("pv") ? v.id : "pc" + v.id))}">▶ ${esc(v.title)}</button>`).join("")}</div>` : ""}
+    ${!isFilm && e.id ? `<div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm sec" href="#/svc/${k}/${esc(e.id)}">🔧 Log a service</a><a class="btn sm sec" href="#/spare/${k}/${esc(e.id)}">🔩 Log spares</a></div>` : ""}</div>`;
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-vid]"); if (!b || typeof playVideo !== "function") return;
+  e.preventDefault(); refreshVidHave().then(() => playVideo(videoList().find(v => v.key === b.dataset.vid || "pc" + v.id === b.dataset.vid))); });
 
 // ---------- COMPANY ----------
 const coTab = {};
@@ -266,7 +334,10 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
       <div class="nm">${esc(c.name)}${c._pending ? '<span class="badge">new – not synced</span>' : ""}</div>
       ${v.score != null && !isQuiet(c) ? `<span class="score ${scoreCls(v.score)}">${esc(v.score)}</span>` : ""}</div>
     ${segOf(c) ? (li => `<div class="banner soft" style="margin:8px 0 0;display:flex;align-items:center;gap:8px"><span>${segOf(c) === LOBBY ? "🛋" : "🗂"} In the <b>${esc(segOf(c))}</b>${li.why ? ` · ${esc(li.why)}` : ""}${pend(key, "segment_set").length ? " · change not synced" : ""}</span><button class="btn sm green" id="promoteBtn" style="margin-left:auto;flex:none">⬆ Promote</button></div>`)(leadInfo(c)) : ""}
-    <div style="margin-top:6px">${st !== "NONE" ? `<span class="chip" style="background:${esc(STATUS_COL[st])};color:#fff">${esc(st)}</span>` : ""}<span class="chip c-blue">📈 ${esc(c.pipeline_stage || "Prospect")}</span>${v.owners ? `<span class="chip">🧑‍💼 ${esc(v.owners)}</span>` : ""}${v.reorder ? `<span class="chip c-${esc(v.reorder.tone === "sub" ? "" : v.reorder.tone)}">${esc(v.reorder.text)}</span>` : ""}${c.region ? `<span class="chip">📍 ${esc(c.region)}</span>` : ""}</div>
+    <div class="tchips" id="tchips">${["URGENT", "WARM", "COLD", "OK", "CONTACT", "DEAD", "NONE"].map(x => { const col = TEMP_COL[x] || "#9aa3af";
+      return `<button data-temp="${x}" class="${x === st ? "on" : ""}" style="border-color:${col};color:${col};${x === st ? `background:${col}` : ""}">${TEMP_NAME[x]}</button>`; }).join("")}</div>
+    <a class="banner soft" href="#/snap/${encodeURIComponent(key)}" style="margin:8px 0 0">📞 <span><b>On a call?</b> Open the snapshot — prices, last order, what you last discussed</span><span class="chev">›</span></a>
+    <div style="margin-top:6px"><span class="chip c-blue">📈 ${esc(c.pipeline_stage || "Prospect")}</span>${v.owners ? `<span class="chip">🧑‍💼 ${esc(v.owners)}</span>` : ""}${v.reorder ? `<span class="chip c-${esc(v.reorder.tone === "sub" ? "" : v.reorder.tone)}">${esc(v.reorder.text)}</span>` : ""}${c.region ? `<span class="chip">📍 ${esc(c.region)}</span>` : ""}</div>
     ${v.last_contact ? `<div class="small" style="margin-top:6px">Last contact: <b>${esc(v.last_contact)}</b></div>` : ""}
     ${mc ? `<div class="small" style="margin-top:2px">👤 ${esc(mc.name)}${mc.role ? " · " + esc(mc.role) : ""}${mc.number ? ` · ${telLink(mc.number, key)}` : ""}</div>` : ""}
     ${v.rate ? `<div style="margin-top:4px"><b class="t-green">${esc(v.rate.text)}</b> <span class="small">${esc(v.rate.sub || "")}</span></div>` : ""}
@@ -292,11 +363,15 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
   body.onclick = e => {
     const t = e.target.closest("[data-gotab]"); if (t) { renderTab(t.dataset.gotab); window.scrollTo({top: 0}); return; }
     if (e.target.id === "moreNotes") { body.querySelector("#notesList").innerHTML = notesHtml(nts, 100000); return; }
+    const qp = e.target.closest("[data-qpdf]"); if (qp) { quotePdfSheet(key, qp.dataset.qpdf); return; }
+    const qr = e.target.closest("[data-qrec]"); if (qr) { openQuoteRecord(key, qr.dataset.qrec); return; }
     const pb = e.target.closest("[data-pdf]"); if (pb) { const ev = PENDING.find(x => x.id === pb.dataset.pdf); if (ev) sharePdf(ev.data.pdf_b64, ev.data.filename); return; }
     const ph = e.target.closest("[data-photo]"); if (ph) { const ev = PENDING.find(x => x.id === ph.dataset.photo); if (ev) showPhoto(ev); return; }
     const ics = e.target.closest("[data-ics]"); if (ics) { const [kind, id] = ics.dataset.ics.split("|"); addToCalendar(key, kind, id); return; }
   };
   $("#addBtn").onclick = () => quickAddSheet(key);
+  $("#tchips").onclick = async e => { const b = e.target.closest("[data-temp]"); if (!b || b.dataset.temp === st) return;
+    await addEvent("temperature", key, {status: b.dataset.temp}); toast(`🌡 ${TEMP_NAME[b.dataset.temp]} — the PC updates at the next sync`); render(); };
   const pb = $("#promoteBtn"); if (pb) pb.onclick = async () => {
     if (!confirm(`Promote ${c.name} to your main list?`)) return;
     await addEvent("segment_set", key, {segment: ""}); toast("Promoted — the PC updates at the next sync"); render(); };
@@ -324,7 +399,7 @@ function groupHtml(g, isOrder, key) {
     ${(g.lines || []).map(ln => { const pr = isOrder ? ln.unit_price : (ln.agreed_price || ln.quoted_price || 0);
       return `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(pr)}${!isOrder && ln.agreed_price && ln.quoted_price && ln.agreed_price != ln.quoted_price ? ` (was ${gbp(ln.quoted_price)})` : ""}</div>`; }).join("")}
     <div class="tot">${tot}</div>${!isOrder && key ? (quoteConverted(key, g) ? `<div class="small t-green" style="font-weight:700">✓ Converted to an order${g._pending || pend(key, "order_new").some(e => e.data.from_quote && e.data.from_quote.key === quoteKeyOf(g)) ? " (not synced)" : ""}</div>`
-      : ["rejected", "expired", "lost"].includes(String(g.status || "").toLowerCase()) ? "" : `<a class="btn sm" style="background:var(--teal);margin:6px 0 2px" href="#/add/order/${encodeURIComponent(key)}?from=${encodeURIComponent(quoteKeyOf(g))}">🛒 Convert to order</a>`) : ""}${g.follow_up_date ? `<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>` : ""}${g.competitor ? `<div class="small">vs ${esc(g.competitor)}</div>` : ""}${g.notes ? `<div class="small">${esc(g.notes)}</div>` : ""}</div>`;
+      : ["rejected", "expired", "lost"].includes(String(g.status || "").toLowerCase()) ? "" : `<a class="btn sm" style="background:var(--teal);margin:6px 0 2px" href="#/add/order/${encodeURIComponent(key)}?from=${encodeURIComponent(quoteKeyOf(g))}">🛒 Convert to order</a>`) : ""}${!isOrder && key && !g._pending && (g.lines || []).some(l => l.section === "Machines") ? ` <button class="btn sm sec" style="margin:6px 0 2px" data-qpdf="${esc(quoteKeyOf(g))}">📄 Quote PDF</button>` : ""}${g.follow_up_date ? `<div class="small">📅 Chase: ${niceDate(g.follow_up_date)}</div>` : ""}${g.competitor ? `<div class="small">vs ${esc(g.competitor)}</div>` : ""}${g.notes ? `<div class="small">${esc(g.notes)}</div>` : ""}</div>`;
 }
 const TAB_RENDER = {
   overview: ({key, c, v, open, nts, mts, addr, over}) => {
@@ -371,15 +446,18 @@ const TAB_RENDER = {
         <div class="tile" style="background:#f59e0b;color:#111"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div><div class="tile" style="background:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
         <div class="tile" style="background:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>${v.reorder ? `<div class="tile" style="background:#6b7280"><b style="font-size:12px">${esc(v.reorder.text.replace(/^\S+\s/, ""))}</b><span>Film reorder</span></div>` : ""}</div>
       <h2>Quotes <span class="r small">${qg.length}</span></h2><div class="list">${qg.map(g => groupHtml(g, false, key)).join("") || '<div class="empty">No quotes.</div>'}</div>
+      ${typeof quotePdfsMadeHtml === "function" ? quotePdfsMadeHtml(key) : ""}
       <h2>Orders <span class="r small">${og.length}</span></h2><div class="list">${og.map(g => groupHtml(g, true)).join("") || '<div class="empty">No orders.</div>'}</div>
       ${callOffsHtml(key)}`;
   },
   equipment: ({key, eq, specs}) => {
     const eqPend = pend(key, "meeting").filter(e => e.data.add_to_equipment && (e.data.films_seen || e.data.machines_seen));
     const packs = packProfiles(key), trials = rows("company_film_trials", key);
-    return `<h2>🏭 Machines & film on site <span class="r small">${eq.length}</span></h2><div class="list">${eq.map(e => `<div class="item"><b>${esc(e.name)}</b>${e.quantity > 1 ? ` ×${esc(e.quantity)}` : ""}
-        <span class="chip">${e.machine_type === "film" ? "🎞 film" : "⚙ machine"}</span>${e.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip">theirs</span>'}
-        ${e.manufacturer ? `<div class="small">${esc(e.manufacturer)}</div>` : ""}${e.notes ? `<div class="small">${esc(e.notes)}</div>` : ""}${e.fit_notes ? `<div class="small">${esc(e.fit_notes)}</div>` : ""}</div>`).join("")
+    const ints = machineInterests(key);
+    return `<h2>⭐ Interested in<a class="r small" href="#" data-addint="${esc(key)}">＋ Add</a></h2>
+      <div class="card">${ints.map(i => `<span class="chip" style="background:#f3eefa;color:#5b3f86">${esc(i.product)}${i._pending ? " ⏳" : ""}</span>`).join("") || '<span class="small">Nothing noted — tap ＋ Add when they ask about a machine.</span>'}
+      ${ints.filter(i => i.note).map(i => `<div class="small">${esc(i.product)}: ${esc(i.note)}</div>`).join("")}</div>
+      <h2>🏭 Machines & film on site <span class="r small">${eq.length}</span></h2><div class="list">${eq.filter(e => !e.is_retired).map(e => machineItem(key, e)).join("")
         + eqPend.map(ev => `<div class="item pend">${esc([ev.data.films_seen, ev.data.machines_seen].filter(Boolean).join(", "))} ${pendBadge({_pending: 1})}</div>`).join("") || '<div class="empty">Nothing recorded. Log a visit to add what you see.</div>'}</div>
       ${specs.length ? `<h2>🎞 Known film specs</h2><div class="list">${specs.map(s => `<div class="item"><b>${num(s.thickness_micron)}µm · ${s.roll_length_m ? (+s.roll_length_m).toLocaleString("en-GB") + " m" : "std length"}</b> · ${num(s.width_mm)}mm
         ${s.is_ours ? '<span class="chip c-green">ours</span>' : '<span class="chip c-red">competitor</span>'}${s.is_suggested ? '<span class="chip c-blue">suggested</span>' : ""}
@@ -405,21 +483,28 @@ function callOffsHtml(key) {
 
 // ---------- quick-add sheet ----------
 function quickAddSheet(key) {
-  if (!key) { // pick a company first
-    openSheet(`<b style="font-size:17px">Add for which company?</b><input class="search" id="qaSearch" placeholder="Search companies…" style="margin-top:10px" autocomplete="off">
-      <div class="list" id="qaList" style="margin-top:8px;max-height:50vh;overflow:auto"></div><a class="btn block sec" href="#/newco">🏢 New company</a>`, el => {
+  if (!key) { // what are you adding, and for whom?
+    const rec = (META.recent || []).map(k => IDX.co.get(k)).filter(Boolean).slice(0, 8);
+    const av = c => { const col = STATUS_COL[companyStatus(c)] || "#94a3b8", ini = c.name.replace(/[^A-Za-z0-9 ]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+      return `<span class="av" style="background:${col === "#dde1ea" ? "#94a3b8" : col}">${esc(ini || "?")}</span>`; };
+    openSheet(`<b style="font-size:19px;letter-spacing:-.01em">Add something</b>
+      <div class="qa-gen"><a href="#/newco">🏢 New lead</a><a href="#/dropin">📍 Drop-in</a><a href="#/board">📌 Sticky</a></div>
+      ${rec.length ? `<h2 style="margin:14px 2px 6px">Recent customers</h2><div class="recentchips">${rec.map(c => `<a data-pick="${esc(c._key)}">${av(c)}<span class="nm">${esc(c.name)}</span></a>`).join("")}</div>` : ""}
+      <input class="search" id="qaSearch" placeholder="Search customers…" style="margin-top:4px" autocomplete="off">
+      <div class="list" id="qaList" style="margin-top:8px;max-height:42vh;overflow:auto"></div>`, el => {
       const draw = () => { const q = el.querySelector("#qaSearch").value.toLowerCase().trim();
         const list = scope().filter(c => !q || haystack(c).includes(q)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 40);
         el.querySelector("#qaList").innerHTML = list.map(c => `<a class="row" data-pick="${esc(c._key)}"><div class="m"><div class="t">${esc(c.name)}</div></div><span class="chev">›</span></a>`).join("") || '<div class="empty">No match</div>'; };
       el.querySelector("#qaSearch").oninput = draw; draw();
-      el.querySelector("#qaList").onclick = e => { const r = e.target.closest("[data-pick]"); if (r) quickAddSheet(r.dataset.pick); };
+      const pick = e => { const r = e.target.closest("[data-pick]"); if (r) { e.preventDefault(); quickAddSheet(r.dataset.pick); } };
+      el.querySelector("#qaList").onclick = pick; const rc = el.querySelector(".recentchips"); if (rc) rc.onclick = pick;
     });
     return;
   }
   const k = encodeURIComponent(key), c = IDX.co.get(key);
   const items = [["📝","Note","#4f46e5",`#/add/note/${k}`],["📞","Log call","#0891b2",`#/call/${k}`],["✅","Action","#16a34a",`#/add/action/${k}`],["🤝","Visit","#2563eb",`#/add/meeting/${k}`],
     ["📷","Photo","#db2777",`photo`],["💷","Quote","#f59e0b",`#/add/quote/${k}`],["🛒","Order","#0d9488",`#/add/order/${k}`],["✍️","Sign-off","#7c3aed",`#/sign/${k}`],
-    ["👤","Contact","#64748b",`#/add/contact/${k}`],["📍","Address","#ea580c",`#/add/address/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
+    ["👤","Contact","#64748b",`#/add/contact/${k}`],["🧪","Samples","#9333ea",`#/samples/${k}`],["📍","Address","#ea580c",`#/add/address/${k}`],["🧮","Cost/pack","#0f766e",`#/pack/${k}`],["🔖","Reorder QR","#b91c1c","reorder"],["📋","Brief","#334155",`#/brief/${k}`]];
   openSheet(`<b style="font-size:17px">${esc(c ? c.name : "")}</b><div class="sgrid" style="margin-top:14px">${items.map(([i, l, col, href]) =>
     href === "reorder" ? `<button data-ro="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : href === "photo" ? `<button data-ph="1"><span class="ic" style="background:${col}">${i}</span>${l}</button>` : `<a href="${href}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`).join("")}</div><button class="btn block sec" id="delCo" style="margin-top:14px;color:var(--red);font-size:14px">🗑 Delete this company</button>`, el => {
     el.querySelector("#delCo").onclick = () => deleteCompany(key);
@@ -528,7 +613,11 @@ route(/^#\/prices$/, () => {
   };
   $("#pq").oninput = e => { prQuery = e.target.value; draw(); };
   $("#pl").onclick = e => { const r = e.target.closest("[data-prod]"); if (!r) return; const h = hist.get(r.dataset.prod) || [];
-    openSheet(`<b style="font-size:16px">${esc(r.dataset.prod)}</b><div class="list" style="margin-top:10px;max-height:60vh;overflow:auto">${h.map(e => `<a class="row" href="${coHref(e.c._key)}"><div class="m"><div class="t">${esc(e.c.name)}</div><div class="s">${niceDate(e.date)} · ${e.kind === "order" ? "order" : "quote · " + esc(e.status || "")} · ×${num(e.qty)}</div></div><b class="money">${gbp(e.price)}</b></a>`).join("") || '<div class="empty">No history.</div>'}</div>`); };
+    const ms = machineSheet(r.dataset.prod);
+    const msTxt = ms ? [ms.model_code, ms.list_price && "list " + gbp(+String(ms.list_price).replace(/[£,]/g, "")), (ms.cap_max_width || ms.max_film_width) && "max film " + (ms.cap_max_width ? num(ms.cap_max_width) + "mm" : ms.max_film_width),
+      ms.seal_dimensions && "seal " + ms.seal_dimensions, (ms.cap_cycles_per_min || ms.packs_per_minute) && (ms.cap_cycles_per_min ? num(ms.cap_cycles_per_min) + "/min" : ms.packs_per_minute), ms.lead_time && "lead " + ms.lead_time,
+      ms.warranty_months && ms.warranty_months + " mo warranty", ms.power && "power " + ms.power, ms.air && "air " + ms.air].filter(Boolean) : [];
+    openSheet(`<b style="font-size:16px">${esc(r.dataset.prod)}</b>${msTxt.length ? `<div class="card small" style="margin-top:8px">📋 ${msTxt.map(esc).join(" · ")}</div>` : ""}<div class="list" style="margin-top:10px;max-height:60vh;overflow:auto">${h.map(e => `<a class="row" href="${coHref(e.c._key)}"><div class="m"><div class="t">${esc(e.c.name)}</div><div class="s">${niceDate(e.date)} · ${e.kind === "order" ? "order" : "quote · " + esc(e.status || "")} · ×${num(e.qty)}</div></div><b class="money">${gbp(e.price)}</b></a>`).join("") || '<div class="empty">No history.</div>'}</div>`); };
   draw();
 });
 function calculators(host) {
@@ -621,7 +710,7 @@ route(/^#\/sync$/, () => {
       <button class="btn block sec" id="wipeBtn" style="margin-top:8px;color:var(--red)">🧹 Clear this phone's data and start fresh</button>
       <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
       <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 18 · data stays on this phone.</p></div>`;
+      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 23 · data stays on this phone.</p></div>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
   $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
@@ -642,4 +731,75 @@ route(/^#\/sync$/, () => {
     PENDING = PENDING.filter(x => !gone.includes(x.id)); await savePending(); render();
   });
   if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then(p => { const el = $("#persist"); if (el) el.textContent = p ? "✓ iOS won't clear this app's data automatically." : "Tip: open the app from the Home Screen icon so iOS keeps its data safe."; });
+});
+
+// ⭐ "interested in a machine" from the phone
+document.addEventListener("click", e => { const b = e.target.closest("[data-addint]"); if (!b) return; e.preventDefault();
+  const key = b.dataset.addint, have = new Set(machineInterests(key).map(i => String(i.product).toLowerCase()));
+  const ms = catalogue().filter(p => p.section === "Machines" && !have.has(p.name.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
+  openSheet(`<b style="font-size:17px">⭐ Which machine are they interested in?</b>
+    <input class="f" id="intNote" placeholder="Note (optional) — e.g. asked at the show" style="margin:10px 0">
+    <div class="list">${ms.map(p => `<button class="row" data-intp="${esc(p.id)}" style="width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line)"><div class="m"><div class="t">${esc(p.name)}</div></div><span class="chev">＋</span></button>`).join("") || '<div class="empty">No machines in the catalogue yet.</div>'}</div>`);
+  document.querySelectorAll("[data-intp]").forEach(x => x.onclick = async () => { const p = ms.find(m => m.id === x.dataset.intp);
+    await addEvent("machine_interest", key, {product_id: +p.id || null, product: p.name, note: ($("#intNote").value || "").trim()});
+    closeSheet(); toast(`⭐ ${p.name} — the PC updates at the next sync`); render(); });
+});
+
+// ---------- 📞 SNAPSHOT: someone's on the phone ----------
+route(/^#\/snap\/(.+)$/, key => {
+  const c = IDX.co.get(String(key)); if (!c) return go("#/companies");
+  setHeader("📞 " + c.name, coHref(key), "companies");
+  const v = view(key) || {}, st = companyStatus(c), ppl = people(key);
+  const ago = d => { const n = -dayDiff(d); return n <= 0 ? "today" : n === 1 ? "yesterday" : n < 14 ? `${n} days ago` : n < 60 ? `${Math.floor(n / 7)} weeks ago` : n < 730 ? `${Math.floor(n / 30)} months ago` : `${Math.floor(n / 365)} years ago`; };
+  const box = (icon, title, col, body) => body ? `<div class="snapsec" style="border-top-color:${col}"><h3>${icon} ${title}</h3>${body}</div>` : "";
+  const ln = (l, r = "", sub = "", rcol = "") => `<div class="ln"><div class="l">${l}${sub ? `<div class="sub">${sub}</div>` : ""}</div>${r ? `<div class="r" style="${rcol ? "color:" + rcol : ""}">${r}</div>` : ""}</div>`;
+  const prodName = (pid, fallback) => { const p = pid && catalogue().find(x => x.id === String(pid)); return p ? p.name : (fallback || "film"); };
+  // ⚡ heads up
+  const heads = [];
+  if (v.reorder && /overdue/i.test(v.reorder.text || "")) heads.push(["⚠", v.reorder.text.replace(/^\S+\s/, ""), "var(--red)"]);
+  const openQ = (v.quote_groups || []).filter(g => ["pending", "counter-offered", "on hold"].includes(String(g.status || "").toLowerCase()));
+  if (openQ.length) heads.push(["💷", `Quote waiting from ${niceDate(openQ[0].date)} (${ago(openQ[0].date)}) — worth asking about`, "#d35400"]);
+  const trials = rows("company_film_trials", key).filter(t => !t.success && !t.ordered);
+  if (trials.length) heads.push(["🧪", `Trial of ${trials[0].spec_name} — no result yet`, "#8e44ad"]);
+  const ints = machineInterests(key); if (ints.length) heads.push(["⭐", "Interested in " + ints.map(i => i.product).slice(0, 2).join(", "), "#7f5ba6"]);
+  if (c.vibe) heads.push(["💭", c.vibe, "var(--sub)"]);
+  // 👤 who
+  const who = ppl.slice(0, 5).map(p => { const n = (p.numbers.find(x => x.is_best) || p.numbers[0] || {}).number, em = p.emails[0];
+    return `<div style="padding:4px 0"><b>${esc(p.name)}</b>${p.is_main_contact ? " ★" : ""}${p.org_role ? ` <span class="small">${esc(p.org_role)}</span>` : ""}
+      <div class="small">${n ? "📞 " + telLink(n, key) : ""}${em ? `${n ? " &nbsp; " : ""}✉️ <a href="mailto:${esc(em)}">${esc(em)}</a>` : ""}</div></div>`; }).join("")
+    + `<a class="btn sm sec" href="#/add/contact/${encodeURIComponent(key)}" style="margin-top:6px">＋ New person calling</a>`;
+  // 🎞 film they use: per product, last price paid + last bought
+  const fo = rows("film_orders", key).filter(o => o.product_id && (o.section || "Film") === "Film");
+  const byP = new Map();
+  for (const o of fo) { const k = String(o.product_id), b = byP.get(k) || {pid: k, last: "", price: 0, rolls: 0, desc: o.description};
+    if ((o.order_date || "") >= b.last) { b.last = o.order_date || ""; if (+o.unit_price) b.price = +o.unit_price; }
+    if (-dayDiff(o.order_date) <= 365) b.rolls += +o.quantity || 0; byP.set(k, b); }
+  let film = [...byP.values()].sort((a, b) => b.last.localeCompare(a.last)).slice(0, 6)
+    .map(b => ln(`<b>${esc(prodName(b.pid, b.desc))}</b>`, b.price ? `${gbp(b.price)}/roll` : "", `last bought ${niceDate(b.last)} (${ago(b.last)})${b.rolls ? ` · ${num(b.rolls)} rolls in the last year` : ""}`, "var(--green)")).join("");
+  if (!film) film = rows("company_known_film_specs", key).slice(0, 4).map(s => ln(`<b>${num(s.thickness_micron)}µm · ${num(s.width_mm)}mm</b>`, s.roll_price ? `${gbp(s.roll_price)}/roll` : "",
+    `runs this · ${s.is_ours ? "ours" : esc(s.supplier || "another supplier")}`)).join("") || '<div class="small">Not bought film from us yet.</div>';
+  // 💷 recently quoted
+  const qs = (v.quote_groups || []).slice(0, 5).map(g => `<div style="padding:3px 0"><div class="sub"><b>${niceDate(g.date)}</b> · ${ago(g.date)} <span style="float:right;font-weight:700;color:${STAT_COL[String(g.status || "").toLowerCase()] || "var(--sub)"}">${esc(g.status || "")}</span></div>
+    ${(g.lines || []).slice(0, 4).map(l => { const a = l.agreed_price, q = l.quoted_price, pr = a && q && Math.abs(a - q) > 0.005 ? `${gbp(q)} → ${gbp(a)}` : gbp(a || q || 0);
+      return ln(`${num(l.quantity) !== "1" ? num(l.quantity) + " × " : ""}${esc(l.description)}`, pr); }).join("")}</div>`).join("") || '<div class="small">Nothing quoted yet.</div>';
+  // 🛒 last bought
+  const ob = (v.order_groups || []).slice(0, 3).map(g => ln(`<b>${niceDate(g.order_date)}</b> <span class="sub">(${ago(g.order_date)})</span>`, gbp0(g.subtotal || g.grand_total),
+    (g.lines || []).slice(0, 3).map(l => `${num(l.quantity)} × ${esc(l.description)}`).join(", "))).join("") || '<div class="small">No orders logged.</div>';
+  // 🗣 last talked about
+  const talk = notes(key).slice(0, 5).map(n => ({d: n.date, w: n.customer_name, t: n.content, i: "📝"}))
+    .concat(meetings(key).filter(m => m.status === "DONE").slice(0, 3).map(m => ({d: m.date, w: m.contacts, t: `${MEETING_TYPES[m.meeting_type || ""] || "Visit"}: ${m.notes || ""}`, i: "🤝"})))
+    .sort((a, b) => String(b.d).localeCompare(String(a.d))).slice(0, 5)
+    .map(x => `<div style="padding:3px 0"><div class="sub">${x.i} <b>${niceDate(x.d)}</b> · ${ago(x.d)}${x.w ? " · with " + esc(x.w) : ""}</div><div style="font-size:14px">${esc(String(x.t || "").replace(/\s+/g, " ").slice(0, 240))}</div></div>`).join("") || '<div class="small">Nothing written down yet.</div>';
+  // ⏰ coming up
+  const up = openActions(key).slice(0, 4).map(a => ln(esc(a.note), niceDate(a.date), "", a.date && dayDiff(a.date) < 0 ? "var(--red)" : "")).join("");
+  $("#view").innerHTML = `<div class="card" style="border-left:5px solid ${TEMP_COL[st] || "var(--line)"}"><b style="font-size:19px">${esc(c.name)}</b>
+      <div class="small">${TEMP_NAME[st] || ""}${v.last_contact ? ` · last contact ${esc(v.last_contact)}` : ""}${v.owners ? ` · ${esc(v.owners)}` : ""}</div></div>
+    ${heads.length ? box("⚡", "Heads up", "#f0a500", heads.map(([i, t, col]) => `<div style="color:${col};font-weight:700;font-size:14px;padding:2px 0">${i} ${esc(t)}</div>`).join("")) : ""}
+    ${box("👤", "Who's who", "#8e44ad", who)}
+    ${box("🎞", "Film they use", "#27ae60", film)}
+    ${box("💷", "Recently quoted", "#d35400", qs)}
+    ${box("🛒", "Last bought", "#2f80ed", ob)}
+    ${box("🗣", "What we last talked about", "#56606e", talk)}
+    ${up ? box("⏰", "Coming up", "#e67e22", up) : ""}
+    <div style="display:flex;gap:6px;margin:10px 0 20px"><a class="btn" href="#/call/${encodeURIComponent(key)}" style="flex:1">📝 Log this call</a><a class="btn sec" href="${coHref(key)}">Open company</a></div>`;
 });

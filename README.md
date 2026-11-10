@@ -105,6 +105,45 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - Not carried (redo at work): edits to existing details and older notes, new quotes and orders. The home copy tells you if there are any.
 - **↩ Back to my normal data** switches the laptop back.
 
+## Version 20: in step with the latest CRM
+- **Orders:** ↻ Repeat last order, a separate 🔖 PO / ref box, the price shows ▲/▼ against what they last paid, machines fall back to their list price, a duplicate warning, and lines for a spec with an in-stock call-off are costed off it (📦 tick) and drawn down on the PC.
+- **Equipment tab:** each machine shows installed date, serial, last service, max roll and packs/min (from its data sheet), spares bought, and its videos. **🔧 Log a service** and **🔩 Log spares** go to that machine on the PC. A 🔧 Service visit asks which machine was serviced.
+- **📌 Notice board** (Home): see the PC's stickies and pin new ones from the road.
+- **Companies:** 🆕 Added filter (this week / last week / 30 days) and a Newest added sort.
+- **Prices:** tap a machine to see its data sheet facts (list price, max film, seal, packs/min, lead time, warranty).
+- Contacts marked as left on the PC drop off the phone's contact lists.
+
+## Version 26 — new look
+- **New tab bar:** Home · Today · **＋** · Customers · Road, floating at the bottom with clean line icons.
+- **The big ＋ in the middle** adds anything from anywhere. On a customer's page it goes straight to their options (note, call, action, visit, photo, quote, order, sign-off, contact…). Anywhere else it shows your recent customers as one-tap icons, a search, and New lead / Drop-in / Sticky.
+- **⋯ (top right)** opens **More**: Prices & tools, Cost per pack, My business card, Videos, Nearby, Mileage, Wrap up the day, Drop-in, Notice board, Missing info, Sync and Meetings → Calendar. It also shows whether anything is waiting to sync (the ⋯ gets a badge when it is).
+- Softer cards, bigger titles, quieter banners. Everything that was there before is still there.
+
+## Version 25
+- 📇 **Contacts from a business card.** On *Add contact*, open **📇 From a business card**. On the iPhone, point the Camera at the card, tap the text button (bottom-right), **Copy All**, paste it in, and tap **Fill in the details**. Name, job title, mobile, other number and email are picked out for you to check before saving. Nothing leaves the phone.
+
+## Version 24
+- 📄 **Quote PDFs on the phone.** On a customer's Commercial tab, any quote with a machine on it has a **📄 Quote PDF** button. Pick who it's for, the opening, price, carriage, and (optionally) film details with pack costings, then **Make the PDF**. It's built on the phone to the same layout as the CRM (classic letterhead or modern), with the machine's photo, description and service requirements from its data sheet. Then email/share it.
+- Quote PDFs you made on the PC are listed under **Quote PDFs** on the same tab. Tap **📄 Open** to rebuild an identical copy (dated today) to send on.
+- Machine photos and wording come over in the sync file, so make sure the data sheet is filled in on the PC first.
+
+## Version 23
+- **📅 Put upcoming meetings in Calendar** (Home): one tap adds every booked meeting to your phone's calendar. Each meeting keeps the same ID, so doing it again updates them rather than adding doubles.
+- **Booking a meeting** offers to add it to your calendar straight away (with a 30-minute reminder).
+- **⏭ Move** uses the same choices as the PC: Today, Tomorrow, +2/+3/+4 days, +1/+2 weeks, +1 month, and next week's Mon–Fri. A weekend asks first.
+
+## Version 22
+- **📞 Snapshot** (company page → "On a call?"): heads-up, who's who, the film they use with the last price paid, recent quotes, last bought, what you last talked about, and what's coming up.
+- **🌡 Temperature buttons** on the company page (Hot / Warm / Cold / OK / To contact / Dead / Not set); the customer list shows it as a coloured left edge.
+- **⭐ Interested in** on a company's Equipment tab — note a machine they've asked about; it shows on the PC's Product Catalogue.
+- **Search a phone number** to see whose it is.
+- **Worth a visit while you're there** — choose 3 / 6 / 10 / 20 / 30 miles.
+
+## Version 21
+- **Checking in** somewhere asks how the last stop went if you haven't written it up: 👍 Fine (one tap, optional one-liner) or 📝 Write it up.
+- **🌙 Wrap up the day** (Home, after 3pm or once you've checked in somewhere; the 5pm calendar reminder opens it): stops and miles, visits not written up, what's waiting to send with Export now, and tomorrow at a glance.
+- **🧪 Samples** (company → ＋): what film, how many, who with and a chase date. On the PC it becomes a film trial, a note and a chase action.
+
 ## Safety nets
 - **Entries found on the phone that aren't in the PC file.** When you load a PC file, anything on the phone the PC file doesn't know about is listed (unsent items made before the PC file, items saved against a company the PC doesn't have or that now has a different name, mileage stops for missing companies). **Continue** removes just those and loads. **Wait** changes nothing. Anything added after the PC file was made is kept and not listed.
 - **🧹 Clear this phone's data** (Sync → Settings) starts fresh: unsent items, mileage stops, plans and map points go; the CRM copy, settings and card stay.

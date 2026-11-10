@@ -149,6 +149,7 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
       <label class="f">Films seen (comma separated)</label><input class="f" name="films_seen" placeholder="e.g. 19µm POF, competitor 15µm">
       <label class="f">Machines seen (comma separated)</label><input class="f" name="machines_seen">
       <label class="check"><input type="checkbox" name="add_to_equipment" checked> Add them to the company's equipment</label></details>
+    <div id="svcMach" class="hidden">${(m => m.length ? `<label class="f">🔧 Which machine was serviced?</label><select class="f" name="equipment_id"><option value="">— not recorded —</option>${m.map((e, i) => `<option value="${esc(e.id)}" ${i === 0 && m.length === 1 ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select><div class="small" style="margin:2px 4px">It's added to that machine's service history on the PC.</div>` : "")(rows("owned_equipment", key).filter(e => !e.is_retired && e.machine_type !== "film"))}</div>
     <label class="check" id="svcRow"><input type="checkbox" name="annual" checked> 🔧 Add an "annual service due" action for this time next year</label>
     <label class="check"><input type="checkbox" name="follow" id="follow"> Add a follow-up action</label>
     <div id="fu" class="hidden"><div class="two"><div><label class="f">Follow-up</label><input class="f" name="fu_note"></div><div><label class="f">When</label><input class="f" type="date" name="fu_date" value="${nextWorkday(7)}"></div></div></div>
@@ -159,6 +160,7 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
       const d = {date: fd.date, time: fd.time || "", location: fd.location || "", contacts: fd.contacts || "", notes: notesTxt,
         status: fd.status || "DONE", meeting_type: fd.meeting_type || "", films_seen: fd.films_seen || "", machines_seen: fd.machines_seen || "", add_to_equipment: !!fd.add_to_equipment};
       if (orig) d.completes_meeting_id = orig.id;
+      if (fd.meeting_type === "service" && fd.equipment_id) d.equipment_id = +fd.equipment_id;
       await addEvent("meeting", key, d);
       if (fd.meeting_type === "service" && (fd.status || "DONE") === "DONE" && fd.annual) {
         const nd = new Date((fd.date || localDate()) + "T12:00:00"); nd.setFullYear(nd.getFullYear() + 1);
@@ -166,9 +168,17 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
       }
       if (fd.follow && fd.fu_note) await addEvent("action_new", key, {date: fd.fu_date || nextWorkday(7), time: "", note: fd.fu_note, tier: 2, channel: "", contact_person: fd.contacts || ""});
       if (fd.photo_after) { toast("Saved ✓"); history.back(); setTimeout(() => takePhoto(key), 350); return false; }
+      if ((fd.status || "DONE") === "SCHEDULED" && fd.date) {
+        const c = IDX.co.get(String(key)), ev = PENDING[PENDING.length - 1];
+        openSheet(`<b style="font-size:17px">📅 Booked — add it to your Calendar?</b><div class="small" style="margin:4px 0 12px">${esc(c.name)} · ${esc(niceDate(fd.date))}${fd.time ? " " + esc(fd.time) : ""}. It'll remind you 30 minutes before.</div>
+          <button class="btn block green" id="calYes">📅 Add to Calendar</button><button class="btn block sec" id="calNo" style="margin-top:8px">Not now</button>`);
+        $("#calYes").onclick = () => { shareIcs(meetingVevent(c, Object.assign({}, d, {id: ev.id}), ev.id), `${c.name} meeting`); closeSheet(); history.back(); };
+        $("#calNo").onclick = () => { closeSheet(); history.back(); };
+        toast("Saved on phone ✓"); return false;
+      }
     });
   const drawQs = () => { const t = $("#mtype").value; $("#typeQs").innerHTML = (MEETING_PROMPTS[t] || []).map((q, i) => `<label class="f">${esc(q)}</label><input class="f" name="q_${i}">`).join(""); };
-  const svc = () => $("#svcRow").classList.toggle("hidden", $("#mtype").value !== "service");
+  const svc = () => { const on = $("#mtype").value === "service"; $("#svcRow").classList.toggle("hidden", !on); $("#svcMach").classList.toggle("hidden", !on); };
   $("#mtype").onchange = () => { drawQs(); svc(); }; drawQs(); svc();
   $("#follow").onchange = e => $("#fu").classList.toggle("hidden", !e.target.checked);
 });
@@ -177,6 +187,11 @@ route(/^#\/add\/meeting\/([^/]+)(?:\/(.+))?$/, (key, mid) => {
 route(/^#\/add\/contact\/([^?]+)(?:\?name=(.*))?$/, (key, preName) => {
   const c = mustCo(key); if (!c) return;
   form("Contact · " + c.name, "#/c/" + key, `
+    <details class="card" style="margin:4px 0 10px;padding:8px 10px"><summary style="font-weight:700">📇 From a business card</summary>
+      <p class="small" style="margin:6px 0">On the iPhone, open the Camera, point it at the card, tap the <b>text</b> button (bottom-right) and <b>Copy All</b>. Then paste it here.</p>
+      <textarea class="f" id="cardTxt" rows="5" placeholder="Paste the card's text"></textarea>
+      <button type="button" class="btn sm" id="cardGo" style="margin-top:6px">Fill in the details ↓</button>
+      <div class="small" id="cardMsg" style="margin-top:4px"></div></details>
     <label class="f">Name</label><input class="f" name="name" required autocapitalize="words" value="${esc(preName || "")}">
     <label class="f">Role / job title</label><input class="f" name="role" list="roles"><datalist id="roles"><option value="Decision maker"><option value="Influencer"><option value="Gatekeeper"><option value="User"></datalist>
     <div class="two"><div><label class="f">Mobile</label><input class="f" type="tel" name="mobile"></div><div><label class="f">Other phone</label><input class="f" type="tel" name="phone2"></div></div>
@@ -185,7 +200,30 @@ route(/^#\/add\/contact\/([^?]+)(?:\?name=(.*))?$/, (key, preName) => {
     async fd => { if (!fd.name) throw new Error("name needed");
       const nums = []; if (fd.mobile) nums.push({number: fd.mobile, tag: "mobile"}); if (fd.phone2) nums.push({number: fd.phone2, tag: ""});
       await addEvent("contact_new", key, {name: fd.name, role: fd.role || "", numbers: nums, emails: fd.email ? [fd.email] : []}); });
+  setTimeout(() => { const b = $("#cardGo"); if (!b) return;
+    b.onclick = () => { const r = parseCardText($("#cardTxt").value, c.name), set = (n, v) => { const el = document.querySelector(`[name=${n}]`); if (el && v && !el.value) el.value = v; };
+      set("name", r.name); set("role", r.role); set("mobile", r.mobile); set("phone2", r.phone); set("email", r.email);
+      const got = ["name", "role", "mobile", "phone", "email"].filter(k => r[k]);
+      $("#cardMsg").textContent = got.length ? `Filled in: ${got.join(", ")}. Check them before saving.` : "Couldn't pick anything out — type it in below."; }; }, 0);
 });
+// Business card text (from the iPhone's Live Text) -> name / role / numbers / email
+function parseCardText(text, company) {
+  const lines = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean), out = {};
+  const em = String(text).match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/); if (em) out.email = em[0].toLowerCase();
+  const phones = [...String(text).matchAll(/(?:\+44\s?\(?0?\)?|\b0)\d[\d\s()-]{8,13}\d/g)].map(m => m[0].replace(/[^\d+]/g, "").replace(/^\+440?/, "0"));
+  for (const p of phones) { if (/^07/.test(p) && !out.mobile) out.mobile = p; else if (!out.phone && p !== out.mobile) out.phone = p; }
+  const ROLE = /\b(manager|director|buyer|owner|founder|head|lead|supervisor|coordinator|co-ordinator|executive|officer|engineer|purchasing|procurement|operations|production|md|ceo|cfo|coo|partner|assistant|administrator|sales|technical)\b/i;
+  const coLow = String(company || "").toLowerCase().replace(/\b(ltd|limited|plc)\b/g, "").trim();
+  for (const l of lines) {
+    if (/@|www\.|https?:|\d{3}/.test(l)) continue;
+    const low = l.toLowerCase();
+    if (coLow && (low.includes(coLow) || coLow.includes(low))) continue;
+    if (/\b(ltd|limited|plc|llp|group|packaging|industries)\b/i.test(l)) continue;
+    if (!out.role && ROLE.test(l) && l.split(/\s+/).length <= 6) { out.role = l; continue; }
+    if (!out.name && /^[A-Z][a-zA-Z'’-]+(\s+[A-Z][a-zA-Z'’.-]+){1,3}$/.test(l)) out.name = l;
+  }
+  return out;
+}
 // ---------- ADDRESS ----------
 const PC_FULL = /^([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})$/i;
 route(/^#\/add\/address\/(.+)$/, key => {
@@ -297,9 +335,13 @@ function initLineEd(key, mode, onChange) {
       st.chosen = p ? {id: p.id, name: p.name, section: p.section} : {id: null, name, section: st.sec === "Machines" ? "Machines" : "Film"};
       d.querySelector(".pkn").innerHTML = `${st.chosen.section === "Machines" ? "⚙" : "🎞"} <b>${esc(st.chosen.name)}</b>`;
       d.querySelector(".picked").classList.remove("hidden"); d.querySelector(".picker").classList.add("hidden");
-      const lp = lastPx || lastPrice(key, st.chosen.name);
-      if (lp && !price.value) price.value = lp;
-      hint.textContent = p ? ("✓ In your catalogue" + (lp ? ` · they last paid ${gbp(lp)}` : "")) : (mode === "quote" ? "Not in catalogue — saved as typed" : "Not in catalogue — added to Products when imported");
+      const paid = lastPx || lastPrice(key, st.chosen.name), lst = paid ? "" : listPrice(st.chosen.name), lp = paid || lst;
+      const co = mode === "order" && p ? inStockCallOff(key, p.id) : null;
+      d._co = co; d._lp = paid || "";
+      if (co && co.unit_price) price.value = (+co.unit_price).toFixed(2);
+      else if (lp && !price.value) price.value = lp;
+      d._hintBase = p ? ("✓ In your catalogue" + (paid ? ` · they last paid ${gbp(paid)}` : lst ? ` · list price ${gbp(lst)}` : "")) : (mode === "quote" ? "Not in catalogue — saved as typed" : "Not in catalogue — added to Products when imported");
+      hint.innerHTML = esc(d._hintBase) + (co ? `<label class="check" style="margin:6px 0 0"><input type="checkbox" data-co checked> 📦 Cost it off their call-off — ${num(co.left)} rolls left${co.unit_price ? " at " + gbp(co.unit_price) : ""}</label>` : "");
       update(); if (!price.value) price.focus();
     };
     const drawQF = () => {
@@ -352,6 +394,11 @@ function initLineEd(key, mode, onChange) {
     d.querySelector(".chg").onclick = () => { st.chosen = null; d.querySelector(".picked").classList.add("hidden"); d.querySelector(".picker").classList.remove("hidden"); hint.textContent = ""; update(); };
     d.querySelector(".x").onclick = () => { if (host.children.length > 1) { d.remove(); update(); } else { d.querySelector(".chg").click(); price.value = ""; } };
     d.querySelectorAll("[data-f]").forEach(i => i.addEventListener("input", update));
+    price.addEventListener("input", () => { // ▲/▼ against what they last paid
+      const base = d.querySelector(".hint .diff") || (() => { const s = document.createElement("div"); s.className = "diff small"; hint.appendChild(s); return s; })();
+      const lp = +d._lp, cur = +price.value;
+      base.textContent = lp && cur && Math.abs(cur - lp) >= 0.005 ? `${cur > lp ? "▲" : "▼"} ${gbp(Math.abs(cur - lp))} ${cur > lp ? "more" : "less"} than last time (${gbp(lp)})` : "";
+      base.style.color = cur > lp ? "var(--amber)" : "var(--blue)"; });
     d._get = () => st.chosen;
     d._set = (ln) => { const p = (ln.product_id && catalogue().find(x => x.id === String(ln.product_id))) || productByName(ln.description);
       st.sec = ln.section === "Machines" ? "Machines" : (p ? p.section : "Film"); choose(p, ln.description, ln.price);
@@ -360,8 +407,10 @@ function initLineEd(key, mode, onChange) {
     return d;
   };
   const read = () => [...host.children].map(d => { const c = d._get(); if (!c) return null;
+    const coBox = d.querySelector("[data-co]");
     return {product_id: c.id ? +c.id : null, product_name: c.name, description: c.name, section: c.section || "Film",
-      quantity: +d.querySelector("[data-f=qty]").value || 0, price: +d.querySelector("[data-f=price]").value || 0}; }).filter(Boolean);
+      quantity: +d.querySelector("[data-f=qty]").value || 0, price: +d.querySelector("[data-f=price]").value || 0,
+      calloff_id: d._co && coBox && coBox.checked ? d._co.id : null}; }).filter(Boolean);
   const vat = () => (+($("#vatPct").value) || 0) / 100, ship = () => +($("#ship").value) || 0;
   const calc = () => lineCalc(read().map(l => ({quantity: l.quantity, unit_price: l.price})), vat(), ship());
   function update() { const c = calc();
@@ -376,7 +425,10 @@ function initLineEd(key, mode, onChange) {
   $("#addLine").onclick = () => { add().scrollIntoView({behavior: "smooth", block: "center"}); };
   ["vatPct", "ship"].forEach(id => $("#" + id).addEventListener("input", update));
   update();
-  return {read, vat, ship, calc, load};
+  // ↻ copy a previous order's lines in (replaces an empty form, otherwise adds underneath)
+  const repeat = (lines) => { const blank = !read().length;
+    lines.forEach((ln, i) => { const d = (i === 0 && blank) ? host.children[0] : add(); d._set(ln); }); update(); };
+  return {read, vat, ship, calc, load, repeat};
 }
 // A quote by its key: a CRM quote's group_key, or "ev:<id>" for one made on this phone and not synced yet.
 function findQuote(key, qk) {
@@ -413,18 +465,27 @@ route(/^#\/add\/order\/([^?]+)(?:\?from=(.+))?$/, (key, fromQ) => {
   const q = fromQ ? findQuote(key, fromQ) : null;
   if (fromQ && !q) toast("That quote isn't on the phone any more — starting a blank order");
   const qLabel = q ? (q.quote_number ? `quote ${q.quote_number}` : `the quote of ${niceDate(q.date)}`) : "";
+  const allOrders = pendingGroups(key, "order_new").concat((view(key) || {}).order_groups || []);
+  const lastOrd = ((view(key) || {}).order_groups || []).slice().sort((a, b) => String(b.order_date).localeCompare(String(a.order_date)))[0];
   form((q ? "Quote → order · " : "Order · ") + c.name, "#/c/" + key + "/commercial", `
     ${q ? `<div class="banner soft" style="display:block;font-weight:500">🔁 Converting ${esc(qLabel)} — every item, quantity and agreed price is copied in. Change anything they've altered (e.g. fewer rolls).</div>` : ""}
-    <label class="f">Order date</label><input class="f" type="date" name="order_date" value="${localDate()}">
+    ${!q && lastOrd ? `<button type="button" class="btn block" id="repeatOrd" style="margin:6px 0 2px">↻ Repeat last order · ${esc(niceDate(lastOrd.order_date))} · ${(lastOrd.lines || []).length} item${(lastOrd.lines || []).length === 1 ? "" : "s"} · ${gbp(lastOrd.grand_total)}</button><div class="small" style="margin:0 4px 6px">Copies the items, quantities and prices — then change what's different.</div>` : ""}
+    <div class="two"><div><label class="f">Order date</label><input class="f" type="date" name="order_date" value="${localDate()}"></div>
+    <div><label class="f">🔖 PO / ref</label><input class="f" name="po_ref" placeholder="e.g. PO 4471"></div></div>
     ${lineEdHtml()}
-    <label class="f">PO number / notes</label><textarea class="f" name="notes" style="min-height:70px" placeholder="e.g. PO 12345, deliver to the back gate"></textarea>
+    <label class="f">Notes</label><textarea class="f" name="notes" style="min-height:70px" placeholder="e.g. deliver to the back gate"></textarea>
     ${q ? '<label class="check"><input type="checkbox" name="won" checked> Mark the quote as Won</label>' : ""}`, "Save order",
     async fd => { const ls = ed.read(); if (!ls.length) throw new Error("add at least one item");
+      const tot = ed.calc().grand_total, od = fd.order_date || localDate();
+      const dup = allOrders.find(g => g.order_date === od && Math.abs((+g.grand_total || 0) - tot) < 0.01);
+      if (dup && !confirm(`There's already an order on ${niceDate(od)} for ${gbp(tot)} — the same date and total.\n\nLog this one as well?`)) return false;
       const notes = [fd.notes || "", q ? `Converted from ${qLabel}` : ""].filter(Boolean).join(" · ");
-      await addEvent("order_new", key, {order_date: fd.order_date || localDate(), notes, vat_rate: ed.vat(), shipping_cost: ed.ship(),
+      await addEvent("order_new", key, {order_date: od, notes, po_ref: (fd.po_ref || "").trim(), vat_rate: ed.vat(), shipping_cost: ed.ship(),
         from_quote: q ? {key: fromQ, group_key: q._pending ? null : q.group_key, event_id: q._pending ? q._pending.id : null, quote_number: q.quote_number || "", mark_won: !!fd.won} : null,
-        lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, unit_price: l.price}))}); });
+        lines: ls.map(l => ({product_id: l.product_id, product_name: l.product_name, description: l.description, section: l.section, quantity: l.quantity, unit_price: l.price, calloff_id: l.calloff_id || null}))}); });
   ed = initLineEd(key, "order");
+  const rb = $("#repeatOrd"); if (rb) rb.onclick = () => { ed.repeat((lastOrd.lines || []).map(l => ({product_id: l.product_id, description: l.description, section: l.section,
+    quantity: l.quantity, price: +(l.unit_price || 0)}))); rb.disabled = true; rb.textContent = "↻ Copied — change anything that's different"; };
   if (q) ed.load((q.lines || []).map(l => ({product_id: l.product_id, description: l.description || l.product_name, section: l.section,
     quantity: l.quantity, price: +(l.agreed_price || l.quoted_price || 0)})), q.vat_rate, q.shipping_cost || 0);
 });
@@ -538,6 +599,33 @@ function showPhoto(ev) {
 
 // ---------- CALENDAR (.ics) ----------
 function icsEscape(s) { return String(s || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/[,;]/g, m => "\\" + m); }
+// 📅 one or many meetings as a calendar file; a fixed UID per meeting means adding it
+// again updates the entry instead of making a second one
+function meetingVevent(c, m, uid) {
+  if (!m.date) return [];
+  const d = m.date.replace(/-/g, ""), t = (m.time || "").replace(":", "").slice(0, 4), addr = rows("addresses", c._key)[0];
+  return ["BEGIN:VEVENT", `UID:${uid}@kempner-mobile`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z`,
+    t ? `DTSTART:${d}T${t}00` : `DTSTART;VALUE=DATE:${d}`, t ? "DURATION:PT1H" : "",
+    `SUMMARY:${icsEscape(`${MEETING_TYPES[m.meeting_type || ""] || "Meeting"} – ${c.name}`)}`,
+    `DESCRIPTION:${icsEscape([m.contacts ? "With " + m.contacts : "", m.notes || ""].filter(Boolean).join("\n"))}`,
+    `LOCATION:${icsEscape(m.location || (addr && (addr.lines || "").replace(/\n/g, ", ")) || "")}`,
+    "BEGIN:VALARM", "TRIGGER:-PT30M", "ACTION:DISPLAY", "DESCRIPTION:Reminder", "END:VALARM", "END:VEVENT"].filter(Boolean);
+}
+function shareIcs(vevents, name) {
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kempner Mobile//EN", "X-WR-CALNAME:Kempner", ...vevents, "END:VCALENDAR"];
+  shareFile(new File([lines.join("\r\n")], name.replace(/[\\/:*?"<>|]/g, "-").slice(0, 60) + ".ics", {type: "text/calendar"}));
+}
+function upcomingMeetings() {
+  const out = [];
+  for (const c of scope()) for (const m of meetings(c._key)) if (m.status !== "DONE" && m.date && m.date >= localDate()) out.push({c, m});
+  return out.sort((a, b) => (a.m.date + (a.m.time || "")).localeCompare(b.m.date + (b.m.time || "")));
+}
+function addAllMeetingsToCalendar() {
+  const ups = upcomingMeetings();
+  if (!ups.length) return toast("No upcoming meetings to add");
+  shareIcs(ups.flatMap(({c, m}) => meetingVevent(c, m, m.id || (m._pending && m._pending.id) || (c._key + m.date + (m.time || "")))),
+    `Kempner meetings ${localDate()}`);
+}
 function addToCalendar(key, kind, id) {
   const c = IDX.co.get(key); if (!c) return;
   const item = kind === "meeting" ? meetings(key).find(m => m.id === id) : actions(key).find(a => a.id === id);
@@ -604,4 +692,43 @@ route(/^#\/card\/edit$/, () => {
     "Save card", async fd => { if (!fd.name) throw new Error("add your name"); if (!fd.mobile && !fd.email) throw new Error("add a mobile or an email");
       META.cardQr = fd.qr === "vcard" ? "vcard" : "page"; delete fd.qr;
       META.card = Object.assign({}, CARD_DEFAULTS, fd); await saveMeta(); location.replace("#/card"); return false; }, "home");
+});
+
+// ---------- 🔧 machine service & 🔩 spares (go to that machine on the PC) ----------
+function machineOf(key, eid) { return rows("owned_equipment", key).find(e => String(e.id) === String(eid)); }
+route(/^#\/svc\/([^/]+)\/(.+)$/, (key, eid) => {
+  const c = mustCo(key), m = machineOf(key, eid); if (!c || !m) return;
+  form("Service · " + m.name, "#/c/" + key + "/equipment", `<div class="small" style="margin:4px">${esc(c.name)}</div>
+    <label class="f">Date of the service</label><input class="f" type="date" name="date" value="${localDate()}">
+    <label class="f">What was done</label><textarea class="f" name="notes" placeholder="e.g. Annual service, new heating wire"></textarea>`, "Save service",
+    async fd => { await addEvent("equipment_service", key, {equipment_id: m.id, machine: m.name, date: fd.date || localDate(), notes: fd.notes || ""}); });
+});
+route(/^#\/spare\/([^/]+)\/(.+)$/, (key, eid) => {
+  const c = mustCo(key), m = machineOf(key, eid); if (!c || !m) return;
+  const sheet = String((machineSheet(m.name) || {}).common_spares || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const before = rows("equipment_spares", key).filter(x => String(x.equipment_id) === String(m.id)).map(x => x.name);
+  const opts = [...new Set(before.concat(sheet, ["Heating wire", "Teflon tape", "Cutting blade", "Silicone pad", "Sealing element"]))];
+  form("Spares · " + m.name, "#/c/" + key + "/equipment", `<div class="small" style="margin:4px">${esc(c.name)}</div>
+    <datalist id="spl">${opts.map(o => `<option value="${esc(o)}">`).join("")}</datalist>
+    <label class="f">Part</label><input class="f" name="name" list="spl" required>
+    <div class="two"><div><label class="f">Qty</label><input class="f" name="quantity" type="number" inputmode="decimal" value="1"></div>
+    <div><label class="f">Date</label><input class="f" type="date" name="date" value="${localDate()}"></div></div>`, "Save spares",
+    async fd => { if (!(fd.name || "").trim()) throw new Error("which part?");
+      await addEvent("equipment_spare", key, {equipment_id: m.id, machine: m.name, name: fd.name.trim(), quantity: +fd.quantity || 1, date: fd.date || localDate()}); });
+});
+// ---------- 📌 notice board (the PC's sticky notes) ----------
+route(/^#\/board$/, () => {
+  setHeader("Notice board", "#/home", "home");
+  const pc = (SNAP && SNAP.stickies) || [], mine = PENDING.filter(e => e.type === "sticky_new");
+  const card = (txt, who, when, imp, forU, pendEv) => `<div class="item ${pendEv ? "pend" : ""}" style="border-left:4px solid ${imp ? "var(--red)" : "#f5d76e"}">
+    <div class="meta">${esc(when)}${who ? " · " + esc(who) : ""}${forU ? ` · <span class="chip c-blue">👤 for ${esc(forU)}</span>` : ""}${imp ? " 📌" : ""} ${pendEv ? pendBadge({_pending: 1}) : ""}</div>
+    <div class="body" style="white-space:pre-wrap;${imp ? "font-weight:700" : ""}">${esc(txt)}</div></div>`;
+  $("#view").innerHTML = `<div class="card"><textarea class="f" id="stTxt" placeholder="Jot a sticky — it goes on the PC's notice board at the next sync" style="min-height:80px"></textarea>
+      <label class="check"><input type="checkbox" id="stImp"> 📌 Important</label><button class="btn block" id="stSave" style="margin-top:6px">📌 Pin it</button></div>
+    <h2>On the board <span class="r small">${pc.length + mine.length}</span></h2>
+    <div class="list">${mine.slice().reverse().map(e => card(e.data.text, META.user || "", niceDate(e.created_at.slice(0, 10)), e.data.important, "", e)).join("")}
+      ${pc.map(n => card(n.text, n.created_by, niceDate(String(n.created_at || "").slice(0, 10)), n.important, n.for_user)).join("") || (mine.length ? "" : '<div class="empty">Nothing on the board.</div>')}</div>
+    <p class="small" style="margin:8px 4px">To turn a sticky into a customer note, use ➜ To customer on the PC's notice board.</p>`;
+  $("#stSave").onclick = async () => { const t = $("#stTxt").value.trim(); if (!t) return toast("Write something first");
+    await addEvent("sticky_new", null, {text: t, important: $("#stImp").checked, by: META.user || (SNAP && SNAP.current_user) || ""}); toast("📌 Pinned — on the PC board after the next sync"); render(); };
 });

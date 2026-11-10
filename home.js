@@ -30,9 +30,9 @@ route(/^#\/home$/, () => {
   const tiles = [["📝", "Note", "#4f46e5", "note"], ["📞", "Log call", "#0891b2", "call"], ["✅", "Action", "#16a34a", "action"],
     ["🤝", "Visit", "#2563eb", "meeting"], ["📷", "Photo", "#db2777", "photo"], ["🏢", "New lead", "#64748b", "#/newco"], ["🎬", "Videos", "#0d9488", "#/videos"], ["🧮", "Cost/pack", "#0f766e", "pack"]];
   v.innerHTML = `${healthBanners()}
-    <div style="margin:2px 4px 10px"><div style="font-size:22px;font-weight:800">${hi}${first ? ", " + esc(first) : ""}</div>
+    <div style="margin:6px 4px 14px"><div style="font-size:29px;font-weight:800;letter-spacing:-.025em;line-height:1.1">${hi}${first ? ", " + esc(first) : ""}</div>
       <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}</div></div>
-    <input class="search" id="hq" type="search" placeholder="🔎 Find a company, person or postcode…" autocomplete="off">
+    <input class="search" id="hq" type="search" placeholder="Find a company, person or postcode…" autocomplete="off">
     ${hasCard ? `<a href="#/card/qr" class="homecard" aria-label="Show my business card QR"><div class="bcface">${cardFrontHtml(card)}</div></a>
       <div class="small" style="text-align:center;margin:-2px 0 10px">Tap your card to show the QR · <a href="#/card">front</a></div>`
       : `<a class="banner soft" href="#/card/edit">🪪 <span>Set up your business card (QR people scan to save you)</span><span class="chev">›</span></a>`}
@@ -54,12 +54,16 @@ route(/^#\/home$/, () => {
       <a class="row" href="#/"><span style="font-size:22px">📋</span><div class="m"><div class="t">Today</div><div class="s ${over ? "alert" : ""}">${over ? `${over} overdue · ` : ""}${due} due today</div></div><span class="chev">›</span></a>
       <a class="row" href="#/plan"><span style="font-size:22px">🗓</span><div class="m"><div class="t">My day & route</div><div class="s">${((typeof ROAD !== "undefined" && ROAD.plans[localDate()]) || []).length} stops planned</div></div><span class="chev">›</span></a>
       ${(SNAP || PENDING.length) ? (n => n ? `<a class="row" href="#/health"><span style="font-size:22px">🩺</span><div class="m"><div class="t">Missing info</div><div class="s">${n} customer${n === 1 ? "" : "s"} missing a postcode, contact, number or email</div></div><span class="chev">›</span></a>` : "")(gapList().length) : ""}
+      ${(n => n ? `<a class="row" href="#" id="calAll"><span style="font-size:22px">📅</span><div class="m"><div class="t">Put upcoming meetings in Calendar</div><div class="s">${n} meeting${n === 1 ? "" : "s"} booked · adding again updates them, no doubles</div></div><span class="chev">›</span></a>` : "")(upcomingMeetings().length)}
+      ${(new Date().getHours() >= 15 || visitsOn(localDate()).some(v => v.key)) ? `<a class="row" href="#/wrap"><span style="font-size:22px">🌙</span><div class="m"><div class="t">Wrap up the day</div><div class="s">${(n => n ? `${n} visit${n === 1 ? "" : "s"} not written up · ` : "")(visitsOn(localDate()).filter(v => v.key && v.kind !== "office" && v.kind !== "place" && !visitLogged(v.key, localDate())).length)}miles, what's left to send, tomorrow</div></div><span class="chev">›</span></a>` : ""}
+      <a class="row" href="#/board"><span style="font-size:22px">📌</span><div class="m"><div class="t">Notice board</div><div class="s">${(((SNAP && SNAP.stickies) || []).length + PENDING.filter(e => e.type === "sticky_new").length) || "No"} sticky note${(((SNAP && SNAP.stickies) || []).length + PENDING.filter(e => e.type === "sticky_new").length) === 1 ? "" : "s"} · jot one down</div></div><span class="chev">›</span></a>
       ${PENDING.length ? `<a class="row" href="#/sync"><span style="font-size:22px">⬆️</span><div class="m"><div class="t">${PENDING.length} waiting to send</div><div class="s">Export to the CRM when you're back</div></div><span class="chev">›</span></a>` : ""}
     </div>`;
   const q = $("#hq"); q.onkeydown = e => { if (e.key === "Enter") { coQuery = q.value; coLimit = 80; go("#/companies"); } };
   q.oninput = () => { if (q.value.length >= 2) { coQuery = q.value; coLimit = 80; go("#/companies"); setTimeout(() => { const s = $("#q"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 30); } };
   homeNearby();
   const hc = $("#hCheck"); if (hc) hc.onclick = () => checkIn(nx.key);
+  const ca = $("#calAll"); if (ca) ca.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
   const ROUTES = {note: k => `#/add/note/${k}`, call: k => `#/call/${k}`, action: k => `#/add/action/${k}`, meeting: k => `#/add/meeting/${k}`, sign: k => `#/sign/${k}`, pack: k => `#/pack/${k}/new`};
   v.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
     const kind = b.dataset.q, title = {note: "Note for…", call: "Log a call with…", action: "Action for…", meeting: "Visit at…", photo: "Photo for…", sign: "Sign-off for…", pack: "Cost per pack for…"}[kind];
@@ -109,4 +113,43 @@ route(/^#\/health$/, () => {
     ${list.length > 150 ? `<div class="small" style="text-align:center;margin:8px">Showing the first 150 of ${list.length}.</div>` : ""}
     <p class="small" style="margin:10px 4px">For duplicates and untagged products, use 🩺 Data health on the PC.</p>`;
   v.querySelectorAll("[data-gf]").forEach(b => b.onclick = () => { gapFilter = b.dataset.gf; render(); });
+});
+
+// ---------- ⋯ MORE: everything that isn't one of the four tabs, one tap away ----------
+route(/^#\/more$/, () => {
+  setHeader("More", null, "more");
+  const n = PENDING.length;
+  const stick = ((SNAP && SNAP.stickies) || []).length + PENDING.filter(e => e.type === "sticky_new").length;
+  const gaps = (SNAP || PENDING.length) ? gapList().length : 0;
+  const t = (href, icon, col, title, sub, badge) => `<a class="mtile" href="${href}"><span class="mi" style="background:${col}">${icon}</span>
+    <div><b>${title}</b><br><span class="s">${sub}</span></div>${badge ? `<span class="bdg">${badge}</span>` : ""}</a>`;
+  const snapAge = SNAP && SNAP.exported_at ? niceDate(String(SNAP.exported_at).slice(0, 10)) + " " + String(SNAP.exported_at).slice(11, 16) : "never";
+  $("#view").innerHTML = `
+    <a class="card" href="#/sync" style="display:flex;align-items:center;gap:12px;color:inherit">
+      <span class="mi" style="width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;background:${n ? "var(--amber)" : "var(--green)"};color:#fff">${n ? "⬆" : "✓"}</span>
+      <div style="flex:1"><b>${n ? `${n} change${n === 1 ? "" : "s"} waiting to send` : "All synced"}</b><div class="small">CRM data from ${esc(snapAge)} · tap to sync</div></div><span class="chev">›</span></a>
+    <h2>Selling</h2>
+    <div class="mgrid">
+      ${t("#/prices", "💷", "#7c3aed", "Prices & tools", "Price list, calculators")}
+      ${t("#/pack", "🧮", "#0f766e", "Cost per pack", "Packs per roll, cost per pack")}
+      ${t("#/card", "🪪", "#d7182a", "My business card", "Show your QR to be saved")}
+      ${t("#/videos", "🎬", "#0d9488", "Videos", "Machine demos to show")}
+    </div>
+    <h2>Out and about</h2>
+    <div class="mgrid">
+      ${t("#/nearby", "📍", "#ea580c", "Nearby", "Customers near you now")}
+      ${t("#/mileage", "🚗", "#2563eb", "Mileage", "Miles by day and month")}
+      ${t("#/wrap", "🌙", "#334155", "Wrap up the day", "Write-ups, miles, tomorrow")}
+      ${t("#/dropin", "🚪", "#64748b", "Drop-in visit", "Popped in somewhere new")}
+    </div>
+    <h2>Keeping tidy</h2>
+    <div class="mgrid">
+      ${t("#/board", "📌", "#f59e0b", "Notice board", stick ? `${stick} sticky note${stick === 1 ? "" : "s"}` : "Jot a sticky for the PC")}
+      ${t("#/health", "🩺", "#16a34a", "Missing info", gaps ? `${gaps} customer${gaps === 1 ? "" : "s"} to tidy` : "All complete")}
+      ${t("#/sync", "🔄", "#0891b2", "Sync", "Send changes, load the CRM", n || "")}
+      ${t("#cal", "📅", "#e11d2e", "Meetings → Calendar", `${upcomingMeetings().length} upcoming · no doubles`)}
+    </div>
+    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v26</p>`;
+  const cal = $("#view").querySelector('[href="#cal"]');
+  if (cal) cal.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
 });

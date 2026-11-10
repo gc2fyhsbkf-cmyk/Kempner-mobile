@@ -57,15 +57,34 @@ async function recordVisit(key, date, time, src) {
   else ROAD.visits.push({id: uuid(), date, time, key: String(key), name: c.name, pc: companyPostcode(key), src});
   await saveRoad("visits");
 }
+// Has a visit at this customer on this day been written up (visit/meeting, note or call)?
+function visitLogged(key, date) {
+  const k = String(key);
+  if (pend(k).some(e => ["meeting", "note", "signoff", "sample_left"].includes(e.type) && String(e.created_at || "").slice(0, 10) === date)) return true;
+  if (rows("meetings", k).some(m => m.date === date && m.status === "DONE")) return true;
+  return rows("notes", k).some(n => n.date === date);
+}
 async function checkIn(key) {
   const d = localDate(), before = ROAD.visits.find(v => v.key === String(key) && v.date === d), snap = before ? Object.assign({}, before) : null;
+  // the stop before this one today, if it hasn't been written up yet
+  const prev = visitsOn(d).filter(v => v.key && v.key !== String(key) && v.kind !== "office" && v.kind !== "place").pop();
+  const prevUnlogged = prev && !visitLogged(prev.key, d) ? prev : null;
   await recordVisit(key, d, localTime(), "checkin");
   const c = IDX.co.get(String(key));
-  openSheet(`<b style="font-size:17px">📍 Checked in · ${esc(c ? c.name : "")}</b><div class="small" style="margin:4px 0 14px">${localTime()} — added to today's mileage.</div>
+  openSheet(`${prevUnlogged ? `<div class="card" style="margin:0 0 12px;background:var(--chip)"><b>How did ${esc(prevUnlogged.name)} go?</b><div class="small">You haven't written up that visit yet.</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button class="btn sm green" id="pvOk">👍 Fine — log it</button><a class="btn sm" href="#/add/meeting/${encodeURIComponent(prevUnlogged.key)}">📝 Write it up</a><button class="btn sm sec" id="pvSkip">Later</button></div>
+      <input class="f" id="pvNote" placeholder="One line about it (optional)" style="margin-top:8px"></div>` : ""}
+    <b style="font-size:17px">📍 Checked in · ${esc(c ? c.name : "")}</b><div class="small" style="margin:4px 0 14px">${localTime()} — added to today's mileage.</div>
     <a class="btn block green" href="#/add/meeting/${encodeURIComponent(key)}">🤝 Log the visit now</a>
     <a class="btn block sec" href="#/brief/${encodeURIComponent(key)}">📋 Read the brief</a>
     <button class="btn block sec" onclick="closeSheet()">Later</button>
     <button class="btn block sec" id="undoCi" style="color:var(--red)">↩ Undo — I didn't mean to check in</button>`, el => {
+    const pvOk = el.querySelector("#pvOk"); if (pvOk) pvOk.onclick = async () => {
+      const line = (el.querySelector("#pvNote").value || "").trim();
+      await addEvent("meeting", prevUnlogged.key, {date: d, time: prevUnlogged.time || "", location: "", contacts: (mainContact(prevUnlogged.key) || {}).name || "",
+        notes: line || "Visit", status: "DONE", meeting_type: "", films_seen: "", machines_seen: "", add_to_equipment: false});
+      pvOk.closest(".card").remove(); toast(`✓ ${prevUnlogged.name} logged`); };
+    const pvS = el.querySelector("#pvSkip"); if (pvS) pvS.onclick = () => pvS.closest(".card").remove();
     el.querySelector("#undoCi").onclick = async () => {
       if (snap) { const v = ROAD.visits.find(x => x.id === snap.id); if (v) Object.assign(v, snap); await saveRoad("visits"); }   // was already there: put it back as it was
       else { const v = ROAD.visits.find(x => x.key === String(key) && x.date === d); if (v) await removeVisit(v.id, true); }
@@ -233,13 +252,14 @@ function suggestNear(stopsGeo, exclude) {
   for (const c of scope()) { const n = openActions(c._key).filter(a => a.date && dayDiff(a.date) <= 0).length; if (n) add(c._key, `${n} action${n === 1 ? "" : "s"} due`); }
   const out = [];
   for (const [k, rs] of reasons) { const c = IDX.co.get(String(k)); if (c && isQuiet(c)) continue; const g = geoOf(companyPostcode(k)); if (!g) continue;
-    const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= 6) out.push({key: k, d, rs: [...new Set(rs)]}); }
+    const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= nearRadius()) out.push({key: k, d, rs: [...new Set(rs)]}); }
   // plus a few Lobby leads close to a stop — "while you're there, try these"
   const leads = [];
   for (const c of scope()) { if (!isQuiet(c) || exclude.has(c._key) || snoozed(c._key)) continue; const g = geoOf(companyPostcode(c._key)); if (!g) continue;
-    const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= 3) leads.push({key: c._key, d, rs: ["🛋 lead to try" + (leadInfo(c).sector ? ` (${leadInfo(c).sector})` : "")]}); }
-  return out.sort((a, b) => a.d - b.d).slice(0, 8).concat(leads.sort((a, b) => a.d - b.d).slice(0, 3));
+    const d = Math.min(...stopsGeo.map(s => miles(s, g))); if (d <= Math.max(3, nearRadius() / 2)) leads.push({key: c._key, d, rs: ["🛋 lead to try" + (leadInfo(c).sector ? ` (${leadInfo(c).sector})` : "")]}); }
+  return out.sort((a, b) => a.d - b.d).slice(0, nearRadius() > 10 ? 15 : 8).concat(leads.sort((a, b) => a.d - b.d).slice(0, 3));
 }
+function nearRadius() { try { return +localStorage.getItem("kempner_near_radius") || 6; } catch (e) { return 6; } }
 route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
   setHeader("On the road", null, "road");
   const d = planDate = dArg || planDate || localDate();
@@ -265,8 +285,9 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
       ${stops.length ? `<a class="btn sm green" href="${routeUrl(stops, start)}" target="_blank">🗺 Route in Google Maps</a>` : ""}</div>
     ${stops.length ? `<div class="small">Google Maps takes all the stops at once. For Apple Maps, tap a stop and use 🧭 Directions on its brief.</div>` : ""}
     ${!homePc() ? `<div class="banner soft" style="margin-top:10px">🏠 <span>Set your home postcode in Mileage so routes and miles start from home.</span></div>` : ""}
-    ${sugg.length ? `<h2>💡 Worth a visit while you're there</h2><div class="list">${sugg.map(x => { const c = IDX.co.get(x.key);
-      return `<div class="row"><div class="m"><div class="t">${esc(c.name)}</div><div class="s">${x.d.toFixed(1)} mi from a stop · ${esc(x.rs.join(", "))}</div></div><button class="btn sm sec" data-snz="${esc(x.key)}" title="Not now">💤</button><button class="btn sm" data-add="${esc(x.key)}">＋ Add</button></div>`; }).join("")}</div>` : ""}`;
+    <h2>💡 Worth a visit while you're there <span class="r">${[3, 6, 10, 20, 30].map(r => `<button class="fchip ${r === nearRadius() ? "on" : ""}" data-rad="${r}" style="padding:3px 8px;font-size:11.5px">${r} mi</button>`).join("")}</span></h2>
+    ${sugg.length ? `<div class="list">${sugg.map(x => { const c = IDX.co.get(x.key);
+      return `<div class="row"><div class="m"><div class="t">${esc(c.name)}</div><div class="s">${x.d.toFixed(1)} mi from a stop · ${esc(x.rs.join(", "))}</div></div><button class="btn sm sec" data-snz="${esc(x.key)}" title="Not now">💤</button><button class="btn sm" data-add="${esc(x.key)}">＋ Add</button></div>`; }).join("")}</div>` : `<div class="empty">${stops.some(s => s.geo) ? `Nobody with something due within ${nearRadius()} miles of your stops — try a wider radius.` : "Add a stop with a postcode to see who's nearby."}</div>`}`;
   const v = $("#view");
   v.querySelector("#pdate").onchange = e => go("#/plan/" + e.target.value);
   v.querySelectorAll("[data-mv]").forEach(b => b.onclick = async () => { const [i, dir] = b.dataset.mv.split("|").map(Number), p = planFor(d), j = i + dir;
@@ -276,6 +297,7 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
     await removeVisit(x.id); render(); });
   v.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { planFor(d).splice(+b.dataset.rm, 1); await saveRoad("plans"); render(); });
   v.querySelectorAll("[data-add]").forEach(b => b.onclick = async () => { await addToPlan(d, b.dataset.add); toast("Added to the plan"); render(); });
+  v.querySelectorAll("[data-rad]").forEach(b => b.onclick = () => { try { localStorage.setItem("kempner_near_radius", b.dataset.rad); } catch (e) {} render(); });
   v.querySelectorAll("[data-snz]").forEach(b => b.onclick = () => { const k = b.dataset.snz, c = IDX.co.get(k);
     openSheet(`<b style="font-size:17px">💤 Stop suggesting ${esc(c ? c.name : "")}</b><div class="small" style="margin:4px 0 10px">Only visit suggestions — Today's reminders stay. Goes to the PC's Plan visits at the next sync.</div>
       <div class="qgrid">${[["2 weeks", 14], ["1 month", 30], ["3 months", 91]].map(([l, n]) => `<button class="fchip" data-days="${n}">${l}</button>`).join("")}</div>
@@ -506,3 +528,41 @@ async function nearStopCheck() {
 // Nearby: "+🗓" adds a customer to today's plan.
 document.addEventListener("click", async e => { const b = e.target.closest("[data-plan]"); if (!b) return; e.preventDefault(); e.stopPropagation();
   await addToPlan(localDate(), b.dataset.plan); toast("Added to today's plan"); });
+
+// ---------- 🌙 wrap up the day ----------
+route(/^#\/wrap$/, () => {
+  setHeader("Wrap up the day", "#/home", "home");
+  const d = localDate(), vs = visitsOn(d).filter(v => v.key), legs = dayLegs(d), mi = legs.reduce((s, l) => s + (+l.mi || 0), 0), rate = mileRateP();
+  const unlogged = vs.filter(v => v.kind !== "office" && v.kind !== "place" && !visitLogged(v.key, d));
+  const doneToday = PENDING.filter(e => e.type === "action_done" && String(e.created_at).slice(0, 10) === d).length;
+  const tom = nextWorkday(1), tomPlan = (ROAD.plans[tom] || []).length, tomDue = scope().reduce((n, c) => n + openActions(c._key).filter(a => a.date === tom).length, 0);
+  $("#view").innerHTML = `<div class="card" style="text-align:center"><div style="font-size:30px;font-weight:800">${vs.length} stop${vs.length === 1 ? "" : "s"} · ${mi.toFixed(1)} mi</div>
+      <div class="small">${niceDate(d)}${rate ? ` · ${gbp(mi * rate / 100)} mileage` : ""}${doneToday ? ` · ${doneToday} action${doneToday === 1 ? "" : "s"} ticked off` : ""}</div></div>
+    <h2>${unlogged.length ? "⚠ Not written up yet" : "✅ Every visit written up"} <span class="r small">${unlogged.length}</span></h2>
+    <div class="list">${unlogged.map(v => `<div class="row"><div class="m"><div class="t">${esc(v.name)}</div><div class="s">${esc(v.time || "")}</div></div>
+      <button class="btn sm green" data-quick="${esc(v.key)}" data-t="${esc(v.time || "")}" data-n="${esc(v.name)}">👍 Fine</button><a class="btn sm" href="#/add/meeting/${encodeURIComponent(v.key)}">📝</a></div>`).join("") || '<div class="empty">Nothing outstanding.</div>'}</div>
+    <h2>📤 To send <span class="r small">${PENDING.length}</span></h2>
+    <div class="card">${PENDING.length ? `${PENDING.length} item${PENDING.length === 1 ? "" : "s"} waiting for the CRM.<button class="btn block" id="wrapExp" style="margin-top:8px">📤 Export changes now</button>` : "Nothing waiting — the CRM is up to date."}</div>
+    <h2>🌅 Tomorrow · ${esc(niceDate(tom))}</h2><div class="card small">${tomPlan} planned stop${tomPlan === 1 ? "" : "s"} · ${tomDue} action${tomDue === 1 ? "" : "s"} due
+      <div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm sec" href="#/plan/${tom}">🗓 Plan tomorrow</a><a class="btn sm sec" href="#/mileage">🚗 Mileage</a></div></div>`;
+  $("#view").querySelectorAll("[data-quick]").forEach(b => b.onclick = async () => {
+    await addEvent("meeting", b.dataset.quick, {date: d, time: b.dataset.t, location: "", contacts: (mainContact(b.dataset.quick) || {}).name || "", notes: "Visit",
+      status: "DONE", meeting_type: "", films_seen: "", machines_seen: "", add_to_equipment: false}); toast(`✓ ${b.dataset.n} logged`); render(); });
+  const ex = $("#wrapExp"); if (ex) ex.onclick = () => exportChanges();
+});
+// ---------- 🧪 samples left with a customer ----------
+route(/^#\/samples\/(.+)$/, key => {
+  const c = mustCo(key); if (!c) return;
+  const usual = (typeof theirUsual === "function" ? theirUsual(key) : []).map(u => u.name);
+  const films = catalogue().filter(p => p.section === "Film").map(p => p.name);
+  form("Samples · " + c.name, "#/c/" + key, `${pplList(key)}
+    <datalist id="spf">${[...new Set(usual.concat(films))].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+    <label class="f">What film?</label><input class="f" name="spec" list="spf" required placeholder="e.g. 19µm · 450mm">
+    <div class="two"><div><label class="f">How many</label><input class="f" name="quantity" type="number" inputmode="decimal" value="1"></div>
+    <div><label class="f">Left with</label><input class="f" name="contact" list="ppl" value="${esc((mainContact(key) || {}).name || "")}"></div></div>
+    <label class="f">Chase on</label><input class="f" type="date" name="chase_date" value="${nextWorkday(10)}">
+    <label class="f">Notes</label><textarea class="f" name="notes" placeholder="e.g. trying it on the new tray line"></textarea>
+    <div class="small" style="margin:4px">On the PC: a film trial on their Equipment tab, a note, and a chase action on that date.</div>`, "Save samples",
+    async fd => { if (!(fd.spec || "").trim()) throw new Error("which film?");
+      await addEvent("sample_left", key, {spec: fd.spec.trim(), quantity: +fd.quantity || 1, contact: fd.contact || "", chase_date: fd.chase_date || "", notes: fd.notes || "", date: localDate()}); });
+});
