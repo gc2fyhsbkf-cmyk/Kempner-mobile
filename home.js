@@ -7,14 +7,15 @@ function upNext() {
   // 1) the next stop on today's plan you haven't checked in at
   const plan = (typeof ROAD !== "undefined" && ROAD.plans[d]) || [];
   for (const k of plan) { if (!IDX.co.get(k)) continue;
-    if (!ROAD.visits.some(v => v.key === k && v.date === d)) return {key: k, why: "Next on today's plan", note: typeof pcNote === "function" ? pcNote(d, k) : ""}; }
+    if (!ROAD.visits.some(v => v.key === k && v.date === d)) { const m = meetings(k).find(x => x.date === d && x.status !== "DONE" && !isRemoteMeeting(x));
+      return {key: k, m, why: m && m.time ? `Next on today's plan · meeting ${m.time}` : "Next on today's plan", note: typeof pcNote === "function" ? pcNote(d, k) : ""}; } }
   // 2) else the next meeting booked for today
   let best = null;
   for (const c of scope()) for (const m of meetings(c._key)) {
     if (m.date !== d || m.status === "DONE") continue;
     if (!best || (m.time || "99") < (best.m.time || "99")) best = {key: c._key, m};
   }
-  return best ? {key: best.key, why: `Meeting${best.m.time ? " at " + best.m.time : " today"}`, note: best.m.notes || best.m.location || ""} : null;
+  return best ? {key: best.key, m: best.m, why: `Meeting${best.m.time ? " at " + best.m.time : " today"}`, note: best.m.notes || best.m.location || ""} : null;
 }
 
 route(/^#\/home$/, () => {
@@ -29,18 +30,23 @@ route(/^#\/home$/, () => {
   const mc = nc ? mainContact(nx.key) : null, addr = nc ? rows("addresses", nx.key)[0] : null;
   const tiles = [["📝", "Note", "#4f46e5", "note"], ["📞", "Log call", "#0891b2", "call"], ["✅", "Action", "#16a34a", "action"],
     ["🤝", "Visit", "#2563eb", "meeting"], ["📷", "Photo", "#db2777", "photo"], ["🏢", "New lead", "#64748b", "#/newco"], ["🎬", "Videos", "#0d9488", "#/videos"], ["🧮", "Cost/pack", "#0f766e", "pack"]];
-  v.innerHTML = `${healthBanners()}
-    <div style="margin:6px 4px 14px"><div style="font-size:29px;font-weight:800;letter-spacing:-.025em;line-height:1.1">${hi}${first ? ", " + esc(first) : ""}</div>
-      <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}</div></div>
+  v.innerHTML = `
+    <div style="margin:6px 4px 12px"><div style="font-size:29px;font-weight:800;letter-spacing:-.025em;line-height:1.1">${hi}${first ? ", " + esc(first) : ""}</div>
+      <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}${(() => {
+        if (!SNAP || !SNAP.exported_at) return "";
+        const ex = String(SNAP.exported_at), days = -dayDiff(ex.slice(0, 10)), old = days >= 2;
+        return ` · <a href="#/sync" style="color:${old ? "var(--amber)" : "inherit"};font-weight:${old ? 700 : 400}">${old ? "⚠ " : ""}copy from PC: ${esc(days === 0 ? "today" : days === 1 ? "yesterday" : niceDate(ex.slice(0, 10)))} ${esc(ex.slice(11, 16))}</a>`; })()}</div></div>
     <input class="search" id="hq" type="search" placeholder="Find a company, person or postcode…" autocomplete="off">
+    ${healthBanners()}
     ${hasCard ? `<a href="#/card/qr" class="homecard" aria-label="Show my business card QR"><div class="bcface">${cardFrontHtml(card)}</div></a>
       <div class="small" style="text-align:center;margin:-2px 0 10px">Tap your card to show the QR · <a href="#/card">front</a></div>` : ""}
     ${nc ? `<h2>Up next</h2><div class="card"><div style="font-weight:800;font-size:17px">${esc(nc.name)}</div>
-        <div class="small">${esc(nx.why)}${nx.note ? " · " + esc(nx.note) : ""}${addr ? " · " + esc((addr.lines || "").split("\n").slice(-2).join(", ")) : ""}</div>
-        <div class="hq4">${addr ? `<a href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭<span>Directions</span></a>` : ""}
+        <div class="small">${esc(nx.why)}${nx.note ? " · " + esc(nx.note) : ""}${addr && (addr.lines || "").trim() ? " · " + esc((addr.lines || "").split("\n").slice(-2).join(", ")) : ""}</div>
+        <div class="hq4">${addr ? `<a href="${navUrl((addr.lines || "").replace(/\n/g, ", "))}">🧭<span>Directions</span></a>` : ""}
           <a href="#/brief/${encodeURIComponent(nx.key)}">📋<span>Brief</span></a>
           <button id="hCheck">📍<span>Check in</span></button>
-          ${mc && dialable(mc.number) ? `<a href="tel:${esc(digits(mc.number))}" data-call="${esc(nx.key)}" data-num="${esc(mc.number)}">📞<span>Call</span></a>` : ""}</div></div>`
+          ${mc && dialable(mc.number) ? `<a href="tel:${esc(digits(mc.number))}" data-call="${esc(nx.key)}" data-num="${esc(mc.number)}">📞<span>Call</span></a>` : ""}</div>
+        ${nx.m ? `<button class="btn block sec" id="hLate" style="margin-top:8px;min-height:50px;font-size:16px">⏰ Running late</button>` : ""}</div>`
       : ""}
     ${(!nc || !hasCard) ? `<div class="list nudges">${!nc ? `<a class="row" href="#/plan"><span class="ni" style="--k:#2563eb">${ICON("cal", 18)}</span><div class="m"><div class="t">Plan today's visits</div><div class="s">Nothing planned yet — route, briefs and mileage</div></div><span class="chev">›</span></a>` : ""}
       ${!hasCard ? `<a class="row" href="#/card/edit"><span class="ni" style="--k:#e11d2e">${ICON("user", 18)}</span><div class="m"><div class="t">Set up your business card</div><div class="s">A QR people scan to save your details</div></div><span class="chev">›</span></a>` : ""}</div>` : ""}
@@ -51,21 +57,17 @@ route(/^#\/home$/, () => {
     <h2>Quick add</h2>
     <div class="sgrid">${tiles.map(([i, l, col, k]) => k.startsWith("#") ? `<a href="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`
       : `<button data-q="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</button>`).join("")}</div>
-    <div class="list" style="margin-top:14px">
+    <div class="list" style="margin-top:14px" id="homeMore">
       ${(n => n ? `<a class="row" href="#/"><span style="font-size:22px">📌</span><div class="m"><div class="t">${n} pinned action${n === 1 ? "" : "s"}</div><div class="s">${esc(pins.slice(0, 2).map(x => x.note).join(" · "))}</div></div><span class="chev">›</span></a>` : "")(pins.length)}
-      <a class="row" href="#/"><span style="font-size:22px">📋</span><div class="m"><div class="t">Today</div><div class="s ${over ? "alert" : ""}">${over ? `${over} overdue · ` : ""}${due} due today</div></div><span class="chev">›</span></a>
-      <a class="row" href="#/plan"><span style="font-size:22px">🗓</span><div class="m"><div class="t">My day & route</div><div class="s">${((typeof ROAD !== "undefined" && ROAD.plans[localDate()]) || []).length} stops planned</div></div><span class="chev">›</span></a>
-      ${(SNAP || PENDING.length) ? (n => n ? `<a class="row" href="#/health"><span style="font-size:22px">🩺</span><div class="m"><div class="t">Missing info</div><div class="s">${n} customer${n === 1 ? "" : "s"} missing a postcode, contact, number or email</div></div><span class="chev">›</span></a>` : "")(gapList().length) : ""}
-      ${(n => n ? `<a class="row" href="#" id="calAll"><span style="font-size:22px">📅</span><div class="m"><div class="t">Put upcoming meetings in Calendar</div><div class="s">${n} meeting${n === 1 ? "" : "s"} booked · adding again updates them, no doubles</div></div><span class="chev">›</span></a>` : "")(upcomingMeetings().length)}
       ${(new Date().getHours() >= 15 || visitsOn(localDate()).some(v => v.key)) ? `<a class="row" href="#/wrap"><span style="font-size:22px">🌙</span><div class="m"><div class="t">Wrap up the day</div><div class="s">${(n => n ? `${n} visit${n === 1 ? "" : "s"} not written up · ` : "")(visitsOn(localDate()).filter(v => v.key && v.kind !== "office" && v.kind !== "place" && !visitLogged(v.key, localDate())).length)}miles, what's left to send, tomorrow</div></div><span class="chev">›</span></a>` : ""}
-      <a class="row" href="#/board"><span style="font-size:22px">📌</span><div class="m"><div class="t">Notice board</div><div class="s">${(((SNAP && SNAP.stickies) || []).length + PENDING.filter(e => e.type === "sticky_new").length) || "No"} sticky note${(((SNAP && SNAP.stickies) || []).length + PENDING.filter(e => e.type === "sticky_new").length) === 1 ? "" : "s"} · jot one down</div></div><span class="chev">›</span></a>
       ${PENDING.length ? `<a class="row" href="#/sync"><span style="font-size:22px">⬆️</span><div class="m"><div class="t">${PENDING.length} waiting to send</div><div class="s">Export to the CRM when you're back</div></div><span class="chev">›</span></a>` : ""}
     </div>`;
   const q = $("#hq"); q.onkeydown = e => { if (e.key === "Enter") { coQuery = q.value; coLimit = 80; go("#/companies"); } };
   q.oninput = () => { if (q.value.length >= 2) { coQuery = q.value; coLimit = 80; go("#/companies"); setTimeout(() => { const s = $("#q"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 30); } };
   homeNearby();
   const hc = $("#hCheck"); if (hc) hc.onclick = () => checkIn(nx.key);
-  const ca = $("#calAll"); if (ca) ca.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
+  const hl = $("#hLate"); if (hl) hl.onclick = () => runningLate(nx.key, nx.m);
+  const hm = $("#homeMore"); if (hm && !hm.children.length) hm.remove();
   const ROUTES = {note: k => `#/add/note/${k}`, call: k => `#/call/${k}`, action: k => `#/add/action/${k}`, meeting: k => `#/add/meeting/${k}`, sign: k => `#/sign/${k}`, pack: k => `#/pack/${k}/new`};
   v.querySelectorAll("[data-q]").forEach(b => b.onclick = () => {
     const kind = b.dataset.q, title = {note: "Note for…", call: "Log a call with…", action: "Action for…", meeting: "Visit at…", photo: "Photo for…", sign: "Sign-off for…", pack: "Cost per pack for…"}[kind];
@@ -77,14 +79,16 @@ route(/^#\/home$/, () => {
   });
 });
 
-// "Near you now": only if you've already allowed location (it never asks from Home), closest 3 customers within 3 miles.
+// "Near you now": only if you've already allowed location (it never asks from Home), the closest 5 within your Nearby distance.
 async function homeNearby() {
   const host = $("#homeNear"); if (!host || !navigator.permissions || !navigator.geolocation) return;
   try { const p = await navigator.permissions.query({name: "geolocation"}); if (p.state !== "granted") return; } catch (e) { return; }
   let here; try { here = await hereNow(8000); } catch (e) { return; }
-  const near = scope().map(c => ({c, g: geoOf(companyPostcode(c._key))})).filter(x => x.g).map(x => ({c: x.c, d: miles(here, x.g)})).filter(x => x.d <= 3).sort((a, b) => a.d - b.d).slice(0, 3);
+  const lim = nearMiles();
+  const all = scope().map(c => ({c, g: geoOf(companyPostcode(c._key))})).filter(x => x.g).map(x => ({c: x.c, d: miles(here, x.g)})).filter(x => !lim || x.d <= lim).sort((a, b) => a.d - b.d);
+  const near = all.slice(0, 5);
   if (!near.length || !$("#homeNear")) return;
-  $("#homeNear").innerHTML = `<h2>📍 Near you now <a class="r small" href="#/nearby">All ›</a></h2><div class="list">${near.map(x => `<a class="row" href="${coHref(x.c._key)}"><div class="m"><div class="t">${esc(x.c.name)}${isQuiet(x.c) ? ' <span class="chip">🛋 lead</span>' : ""}</div><div class="s">${x.d.toFixed(1)} mi away${(() => { const n = openActions(x.c._key).length; return n ? ` · ${n} open action${n === 1 ? "" : "s"}` : ""; })()}</div></div><span class="chev">›</span></a>`).join("")}</div>`;
+  $("#homeNear").innerHTML = `<h2>📍 Near you now <a class="r small" href="#/nearby">${all.length > near.length ? `All ${all.length}` : "All"}${lim ? ` within ${lim} mi` : ""} ›</a></h2><div class="list">${near.map(x => `<a class="row" href="${coHref(x.c._key)}"><div class="m"><div class="t">${esc(x.c.name)}${isQuiet(x.c) ? ' <span class="chip">🛋 lead</span>' : ""}</div><div class="s">${x.d.toFixed(1)} mi away${(() => { const n = openActions(x.c._key).length; return n ? ` · ${n} open action${n === 1 ? "" : "s"}` : ""; })()}</div></div><span class="chev">›</span></a>`).join("")}</div>`;
 }
 
 // ---------- 🩺 MISSING INFO — the phone's version of the CRM's data health check ----------
@@ -151,7 +155,10 @@ route(/^#\/more$/, () => {
       ${t("#/sync", "🔄", "#0891b2", "Sync", "Send changes, load the CRM", n || "")}
       ${t("#cal", "📅", "#e11d2e", "Meetings → Calendar", `${upcomingMeetings().length} upcoming · no doubles`)}
     </div>
-    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v29</p>`;
+    <a class="card" href="#/settings" style="display:flex;align-items:center;gap:12px;color:inherit;margin-top:18px">
+      <span class="mi" style="width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;background:#475569">⚙️</span>
+      <div style="flex:1"><b>Settings</b><div class="small">Mileage, directions, "Arrived?", backup</div></div><span class="chev">›</span></a>
+    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v${APP_V}</p>`;
   const cal = $("#view").querySelector('[href="#cal"]');
   if (cal) cal.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
 });

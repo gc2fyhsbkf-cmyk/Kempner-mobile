@@ -72,7 +72,9 @@ async function remapTempKeys() {
   if (n) { await saveRoad("visits"); await saveRoad("plans"); }
 }
 window.onSnapshotLoaded = async () => { await remapTempKeys(); const n = await mergePcPlans();
-  for (let i = 0; i < 14; i++) await mergeMeetingStops(addDays(i)); return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
+  for (let i = 0; i < 14; i++) await mergeMeetingStops(addDays(i));
+  setTimeout(() => readyForNoSignal().then(() => render()).catch(() => {}), 300);   // 📶 look up every postcode while there's Wi-Fi
+  return n ? ` 🗓 ${n} day plan${n === 1 ? "" : "s"} from the PC.` : ""; };
 
 // ---------- visits (check-ins + logged visits) ----------
 function visitsOn(date) { return ROAD.visits.filter(v => v.date === date).sort((a, b) => (a.time || "").localeCompare(b.time || "")); }
@@ -159,6 +161,7 @@ function briefSpeech(key) {
   const clean = t => String(t || "").replace(/µm/g, " micron").replace(/·/g, ",").replace(/£/g, "").replace(/\s+/g, " ").trim();
   s.push(`Brief for ${b.c.name}.`);
   if (b.v.last_contact) s.push(`Last contact ${b.v.last_contact.replace(/\(.*\)/, "")}.`);
+  if (siteInfo(key)) s.push(`On arrival: ${clean(siteInfo(key))}.`);
   const main = b.ppl.find(p => p.is_main_contact) || b.ppl[0];
   if (main) s.push(`Main contact ${main.name}${main.org_role ? ", " + main.org_role : ""}.`);
   if (b.upMeet) s.push(`Booked: ${MEETING_TYPES[b.upMeet.meeting_type || ""] || "meeting"} ${niceDate(b.upMeet.date)}${b.upMeet.time ? " at " + b.upMeet.time : ""}.`);
@@ -190,11 +193,12 @@ route(/^#\/brief\/(.+)$/, key => {
   $("#view").innerHTML = `
     <div class="card"><div style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:12px;height:12px;background:${esc(STATUS_COL[st] || "#dde1ea")}"></span>
       <b style="font-size:19px;flex:1">${esc(b.c.name)}</b>${b.v.score != null ? `<span class="score ${scoreCls(b.v.score)}">${esc(b.v.score)}</span>` : ""}</div>
-      ${b.v.last_contact ? `<div class="small" style="margin-top:6px">Last contact <b>${esc(b.v.last_contact)}</b></div>` : ""}
+      ${(lt => lt ? `<div style="margin-top:8px;font-size:15px;line-height:1.35">${lt}</div>` : (b.v.last_contact ? `<div class="small" style="margin-top:6px">Last contact <b>${esc(b.v.last_contact)}</b></div>` : ""))(lastTimeLine(key))}
+      ${siteInfoHtml(key)}
       <div style="margin-top:6px">${b.v.reorder ? `<span class="chip c-${esc(b.v.reorder.tone === "sub" ? "" : b.v.reorder.tone)}">${esc(b.v.reorder.text)}</span>` : ""}${b.v.rate ? `<span class="chip c-green">${esc(b.v.rate.text)}</span>` : ""}</div>
       <div class="qa" style="grid-template-columns:repeat(4,1fr)">
         <button id="speakBtn"><span class="i">🔊</span>Read aloud</button>
-        <a class="${addr ? "" : "off"}" href="https://maps.apple.com/?daddr=${addr ? encodeURIComponent((addr.lines || "").replace(/\n/g, ", ")) : ""}"><span class="i">🧭</span>Directions</a>
+        <a class="${addr ? "" : "off"}" href="${addr ? navUrl((addr.lines || "").replace(/\n/g, ", ")) : ""}"><span class="i">🧭</span>Directions</a>
         <button id="ciBtn" ${checked ? 'style="background:var(--green-soft)"' : ""}><span class="i">📍</span>${checked ? "Checked in" : "Check in"}</button>
         <a href="#/add/meeting/${encodeURIComponent(key)}"><span class="i">🤝</span>Log visit</a></div></div>
     ${b.upMeet ? `<div class="banner blue">📅 <span>Booked ${esc(niceDate(b.upMeet.date))}${b.upMeet.time ? " " + esc(b.upMeet.time) : ""} · ${esc(MEETING_TYPES[b.upMeet.meeting_type || ""] || "Meeting")}${b.upMeet.notes ? " — " + esc(b.upMeet.notes.slice(0, 80)) : ""}</span></div>` : ""}
@@ -306,13 +310,16 @@ route(/^#\/plan(?:\/(\d{4}-\d{2}-\d{2}))?$/, async dArg => {
         <a class="m" href="#/brief/${encodeURIComponent(s.key)}" style="color:inherit"><div class="t">${esc(s.name)}</div><div class="s">${s.t ? `<span class="chip c-amber" style="font-size:10.5px;padding:1px 6px;margin-right:6px">⏰ ${esc(s.t)}</span>` : ""}${fromPc(d, s.key) ? '<span class="chip c-blue" style="font-size:10.5px;padding:1px 6px;margin-right:6px">🖥 from PC</span>' : ""}${s.pc ? esc(s.pc) : "⚠ no postcode"}${i && s.geo && stops[i - 1].geo ? ` · ${miles(stops[i - 1].geo, s.geo).toFixed(1)} mi from last` : ""}${s.done ? " · checked in" : ""}</div>${pcNote(d, s.key) ? `<div class="s" style="white-space:normal">🗒 ${esc(pcNote(d, s.key))}</div>` : ""}</a>
         <div style="display:flex;gap:4px">${s.done ? `<button class="btn sm sec" data-unci="${esc(s.key)}" title="Undo the check-in">↩</button>` : ""}<button class="btn sm sec" data-mv="${i}|-1" ${i ? "" : "disabled"}>↑</button><button class="btn sm sec" data-mv="${i}|1" ${i < stops.length - 1 ? "" : "disabled"}>↓</button><button class="btn sm sec" data-rm="${i}" style="color:var(--red)">✕</button></div></div>`).join("")
       || '<div class="empty">No stops yet. Add the customers you\'re seeing.</div>'}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0">
+    <div class="btnrow">
       <button class="btn sm" id="addStop">＋ Add stop</button><a class="btn sm sec" href="#/dropin">📍 Drop-in</a>
-      <button class="btn sm sec" id="bestOrder" ${stops.length > 1 ? "" : "disabled"}>✨ Best order</button>
-      ${stops.length ? `<a class="btn sm green" href="${routeUrl(stops, start)}" target="_blank">🗺 Route in Google Maps</a>` : ""}</div>
-    ${stops.length ? `<div class="small">Google Maps takes all the stops at once. For Apple Maps, tap a stop and use 🧭 Directions on its brief.</div>` : ""}
+      <button class="btn sm sec" id="bestOrder" ${stops.length > 1 ? "" : "disabled"}>✨ Best order</button></div>
+    ${stops.length ? `<div class="btnrow2">
+      ${(nx => nx ? `<a class="btn" href="${navUrl(nx.addr, nx.geo)}" target="_blank">🧭 Next: ${esc(nx.name.split(" ").slice(0, 2).join(" "))}<span>${esc(navName())}</span></a>` : "")(stops.find(s => !s.done && (s.addr || s.geo)))}
+      <a class="btn green" href="${routeUrl(stops, start)}" target="_blank">🗺 Whole day<span>Google Maps · all stops</span></a></div>
+      <div class="small" style="margin:2px 4px 0">Waze and Apple Maps take one stop at a time. <a href="#/settings">Change app ›</a></div>` : ""}
     ${!homePc() ? `<div class="banner soft" style="margin-top:10px">🏠 <span>Set your home postcode in Mileage so routes and miles start from home.</span></div>` : ""}
-    <h2>💡 Worth a visit while you're there <span class="r">${[3, 6, 10, 20, 30].map(r => `<button class="fchip ${r === nearRadius() ? "on" : ""}" data-rad="${r}" style="padding:3px 8px;font-size:11.5px">${r} mi</button>`).join("")}</span></h2>
+    <h2>💡 Worth a visit while you're there</h2>
+    <div class="chips" style="margin:-2px 2px 8px">${[3, 6, 10, 20, 30].map(r => `<button class="fchip sm ${r === nearRadius() ? "on" : ""}" data-rad="${r}">${r} mi</button>`).join("")}</div>
     ${sugg.length ? `<div class="list">${sugg.map(x => { const c = IDX.co.get(x.key);
       return `<div class="row"><div class="m"><div class="t">${esc(c.name)}</div><div class="s">${x.d.toFixed(1)} mi from a stop · ${esc(x.rs.join(", "))}</div></div><button class="btn sm sec" data-snz="${esc(x.key)}" title="Not now">💤</button><button class="btn sm" data-add="${esc(x.key)}">＋ Add</button></div>`; }).join("")}</div>` : `<div class="empty">${stops.some(s => s.geo) ? `Nobody with something due within ${nearRadius()} miles of your stops — try a wider radius.` : "Add a stop with a postcode to see who's nearby."}</div>`}`;
   const v = $("#view");
@@ -423,16 +430,10 @@ route(/^#\/mileage(?:\/(\d{4}-\d{2}))?$/, mArg => {
         <button class="btn sm sec" id="claimBtn">${claimed ? "Unmark claimed" : "Mark claimed"}</button></div>
       <div class="small" id="mlMsg" style="text-align:center;margin-top:6px">${missing ? `${missing} leg${missing === 1 ? "" : "s"} missing a postcode — tap the miles to type them.` : "Tap any miles figure to correct it."}</div></div>
     ${dayHtml || '<div class="empty" style="margin-top:10px">No visits this month yet. Visits you log, check-ins and signed sheets appear here automatically.</div>'}
-    <h2>Settings</h2><div class="card"><div class="two"><div><label class="f">Home postcode</label><input class="f" id="homePc" value="${esc(homePc())}" placeholder="e.g. LS1 4AB" autocapitalize="characters"></div>
-      <div><label class="f">Office postcode</label><input class="f" id="offPc" value="${esc(officePc())}" autocapitalize="characters"></div>
-      <div><label class="f">Rate per mile</label><input class="f" id="rate" inputmode="decimal" value="${esc(rate ? rate + "p" : "")}" placeholder="e.g. 45p or 0.45">${rate ? `<div class="small">= ${gbp(rate / 100)} a mile</div>` : ""}</div></div>
-      <p class="small">Road miles come from OpenStreetMap routing (needs signal; only the two postcodes' map points are sent). Without signal you get a straight-line estimate × 1.25, marked ≈.</p></div>`;
+    <a class="card" href="#/settings" style="display:flex;align-items:center;gap:10px;color:inherit;margin-top:14px"><span style="font-size:20px">⚙️</span>
+      <div style="flex:1"><b>Mileage settings</b><div class="small">${homePc() ? "Home " + esc(homePc()) : "⚠ No home postcode yet"} · Office ${esc(officePc())} · ${rate ? esc(rate + "p a mile") : "no rate set"}</div></div><span class="chev">›</span></a>
+    <p class="small">Road miles come from OpenStreetMap routing (needs signal; only the two postcodes' map points are sent). Without signal you get a straight-line estimate × 1.25, marked ≈.</p>`;
   const v = $("#view");
-  // a settings change is sent with the next export (and says when, so the newest of phone/PC wins)
-  const setChanged = () => { META.mileSetAt = nowIso(); META.roadDirty = true; };
-  v.querySelector("#offPc").onchange = async e => { META.officePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([officePc()]); render(); };
-  v.querySelector("#homePc").onchange = async e => { META.homePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([homePc()]); render(); };
-  v.querySelector("#rate").onchange = async e => { META.mileRate = e.target.value.trim(); META.mileRate = mileRateP() || ""; setChanged(); await saveMeta(); render(); };
   v.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => { const [d, i] = b.dataset.edit.split("|"), cur = (dayLegs(d).find(l => l.i === i) || {}).mi;
     const ans = prompt("Miles for this leg (leave blank to reset):", cur == null ? "" : cur); if (ans === null) return;
     const cfg = ROAD.mileage[d] || (ROAD.mileage[d] = {}); cfg.over = cfg.over || {};
@@ -595,3 +596,175 @@ route(/^#\/samples\/(.+)$/, key => {
     async fd => { if (!(fd.spec || "").trim()) throw new Error("which film?");
       await addEvent("sample_left", key, {spec: fd.spec.trim(), quantity: +fd.quantity || 1, contact: fd.contact || "", chase_date: fd.chase_date || "", notes: fd.notes || "", date: localDate()}); });
 });
+
+// ---------- 📍 ARRIVED? When you open the app close to one of today's stops or meetings, ask once ----------
+// Only if location is already allowed (never asks for permission). Postcodes are roughly the middle of a street/estate,
+// so "close" defaults to 1 mile — near enough to be right, far enough not to fire at a petrol station on the way.
+const arriveMiles = () => +(META.arriveMiles || 1);
+let _arrBusy = false, _arrLastRun = 0;
+function arrivalTargets() {
+  const d = localDate(), out = new Map();
+  for (const k of (ROAD.plans[d] || [])) if (IDX.co.get(String(k))) out.set(String(k), {key: String(k), m: null});
+  for (const c of scope()) for (const m of meetings(c._key)) {
+    if (m.date !== d || m.status === "DONE" || m.status === "CANCELLED" || isRemoteMeeting(m)) continue;
+    const cur = out.get(c._key); if (!cur || !cur.m) out.set(c._key, {key: c._key, m});
+  }
+  const skip = (META.arrSkip && META.arrSkip.date === d) ? META.arrSkip.keys : {};
+  return [...out.values()].filter(t => !ROAD.visits.some(v => v.key === t.key && v.date === d) && !(skip[t.key] > Date.now()));
+}
+async function arrivalCheck(force) {
+  if (_arrBusy || !SNAP || document.visibilityState !== "visible" || META.arriveOff) return;
+  if (!force && Date.now() - _arrLastRun < 90000) return;
+  if ($("#sheet") && $("#sheet").classList.contains("open")) return;
+  if (!navigator.permissions || !navigator.geolocation) return;
+  try { const p = await navigator.permissions.query({name: "geolocation"}); if (p.state !== "granted") return; } catch (e) { return; }
+  const targets = arrivalTargets().map(t => Object.assign(t, {g: geoOf(companyPostcode(t.key))})).filter(t => t.g);
+  if (!targets.length) return;
+  _arrBusy = true; _arrLastRun = Date.now();
+  try {
+    let here; try { here = await hereNow(10000); } catch (e) { return; }
+    const near = targets.map(t => Object.assign(t, {d: miles(here, t.g)})).filter(t => t.d <= arriveMiles()).sort((a, b) => a.d - b.d)[0];
+    if (!near || ($("#sheet") && $("#sheet").classList.contains("open"))) return;
+    askArrived(near);
+  } finally { _arrBusy = false; }
+}
+async function arrSkip(key, mins) {
+  const d = localDate(); if (!META.arrSkip || META.arrSkip.date !== d) META.arrSkip = {date: d, keys: {}};
+  META.arrSkip.keys[key] = mins ? Date.now() + mins * 60000 : Date.now() + 86400000; await saveMeta();
+}
+function askArrived(t) {
+  const c = IDX.co.get(t.key), m = t.m;
+  openSheet(`<b style="font-size:19px">📍 Arrived at ${esc(c.name)}?</b>
+    <div class="small" style="margin:4px 0 14px">You're about ${t.d < 0.1 ? "right there" : t.d.toFixed(1) + " mi from their postcode"}${m ? ` · ${MEETING_ICON[m.meeting_type || ""] || "🤝"} ${esc(MEETING_TYPES[m.meeting_type || ""] || "Meeting")}${m.time ? " at " + esc(m.time) : ""}` : " · on today's plan"}</div>
+    <button class="btn block green" id="arrYes">✓ Yes, I'm here</button>
+    <button class="btn block sec" id="arrLater" style="margin-top:8px">Not yet — ask again in 30 min</button>
+    <button class="btn block sec" id="arrNo" style="margin-top:8px">Just passing — don't ask today</button>`, el => {
+    el.querySelector("#arrYes").onclick = async () => { await recordVisit(t.key, localDate(), localTime(), "checkin"); closeSheet(); setTimeout(() => meetingCard(t.key, m), 250); };
+    el.querySelector("#arrLater").onclick = async () => { await arrSkip(t.key, 30); closeSheet(); };
+    el.querySelector("#arrNo").onclick = async () => { await arrSkip(t.key, 0); closeSheet(); };
+  });
+}
+// who you're here to see and what it's about — straight from the meeting as booked, plus the main contact and what's open
+function meetingCard(key, m) {
+  const c = IDX.co.get(String(key)), mc = mainContact(key), open = openActions(key).slice(0, 3);
+  const note = typeof pcNote === "function" ? pcNote(localDate(), String(key)) : "";
+  const who = (m && m.contacts) || (mc && mc.name) || "";
+  openSheet(`<div class="small">📍 Checked in ${esc(localTime())} · added to today's mileage</div>
+    <b style="font-size:20px;display:block;margin:4px 0 2px">${esc(c.name)}</b>
+    ${m ? `<div style="font-weight:700">${MEETING_ICON[m.meeting_type || ""] || "🤝"} ${esc(MEETING_TYPES[m.meeting_type || ""] || "Meeting")}${m.time ? " · " + esc(m.time) : ""}</div>` : `<div class="small">On today's plan (no meeting booked)</div>`}
+    ${siteInfoHtml(key, true)}
+    <div class="card" style="margin:10px 0;background:var(--chip)">
+      ${who ? `<div><b>👤 Meeting:</b> ${esc(who)}${mc && mc.name === who && mc.role ? ` <span class="small">(${esc(mc.role)})</span>` : ""}</div>` : ""}
+      ${m && m.location ? `<div style="margin-top:4px"><b>📌 Where:</b> ${esc(m.location)}</div>` : ""}
+      ${m && m.notes ? `<div style="margin-top:6px;white-space:pre-wrap">${esc(m.notes)}</div>` : ""}
+      ${note ? `<div style="margin-top:6px"><b>🖥 Your note:</b> ${esc(note)}</div>` : ""}
+      ${!who && !(m && (m.location || m.notes)) && !note ? `<div class="small">Nothing was written on the booking.</div>` : ""}</div>
+    ${(lt => lt ? `<div class="small" style="margin-bottom:8px">${lt}</div>` : "")(lastTimeLine(key))}
+    ${open.length ? `<div class="small" style="font-weight:700;margin-bottom:4px">Open for them</div>${open.map(a => `<div class="small">• ${a.date ? esc(niceDate(a.date)) + " — " : ""}${esc(a.note || "")}</div>`).join("")}` : ""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">
+      ${mc && dialable(mc.number) ? `<a class="btn sm sec" href="tel:${esc(digits(mc.number))}" data-call="${esc(key)}" data-num="${esc(mc.number)}">📞 ${esc(mc.name.split(" ")[0])}</a>` : ""}
+      <a class="btn sm sec" href="#/brief/${encodeURIComponent(key)}" onclick="closeSheet()">📋 Brief</a>
+      <a class="btn sm green" href="#/add/meeting/${encodeURIComponent(key)}${m && m.id && !m._pending ? "/" + encodeURIComponent(m.id) : ""}" onclick="closeSheet()">🤝 Log it after</a></div>
+    <button class="btn block sec" style="margin-top:10px" onclick="closeSheet()">Close</button>`);
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") setTimeout(() => arrivalCheck(), 1200); });
+setTimeout(() => arrivalCheck(true), 2500);
+// setting (Settings page): how close counts as arrived, or off
+function wireArrivePicker(root) { (root || document).querySelectorAll("[data-arr]").forEach(b => b.onclick = async () => { const v = +b.dataset.arr; META.arriveOff = !v; if (v) META.arriveMiles = v; await saveMeta(); render(); }); }
+
+// ---------- 🚧 ON ARRIVAL: parking, sign-in, PPE — optional, only when it's worth knowing ----------
+function siteInfo(key) {
+  const ev = PENDING.filter(e => e.type === "site_info" && evCoKey(e) === String(key)).pop();
+  if (ev) return String(ev.data.text || "");
+  const c = IDX.co.get(String(key)); return String((c && c.site_info) || "");
+}
+function siteInfoHtml(key, compact) {
+  const t = siteInfo(key);
+  if (t) return `<div class="banner soft" style="margin:8px 0;align-items:flex-start;font-weight:500" data-site="${esc(key)}">🚧 <span><b>On arrival:</b> ${esc(t).replace(/\n/g, "<br>")}</span><span class="small" style="margin-left:auto">✎</span></div>`;
+  return compact ? "" : `<a class="small" href="#" data-site="${esc(key)}" style="display:inline-block;margin:6px 0">＋ Add on-arrival info (parking, sign-in, PPE)</a>`;
+}
+function editSiteInfo(key) {
+  const c = IDX.co.get(String(key)); if (!c) return;
+  openSheet(`<b style="font-size:17px">🚧 On arrival · ${esc(c.name)}</b>
+    <div class="small" style="margin:4px 0 10px">Anything worth knowing when you (or a colleague) turn up: where to park, gatehouse or sign-in, PPE, who to ask for. Leave it blank if there's nothing to say.</div>
+    <textarea class="f" id="siTxt" rows="4" placeholder="e.g. Park in the visitor bays by unit 4, sign in at the gatehouse, safety boots needed">${esc(siteInfo(key))}</textarea>
+    <button class="btn block green" id="siSave" style="margin-top:10px">Save</button><button class="btn block sec" onclick="closeSheet()" style="margin-top:8px">Cancel</button>`, el => {
+    el.querySelector("#siSave").onclick = async () => {
+      const t = el.querySelector("#siTxt").value.trim();
+      if (t !== siteInfo(key)) { await addEvent("site_info", key, {text: t}); toast(t ? "Saved — goes to the CRM with your next export" : "Cleared"); }
+      closeSheet(); render(); };
+  });
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-site]"); if (!b) return; e.preventDefault(); editSiteInfo(b.dataset.site); });
+
+// ---------- 💬 LAST TIME: one line at the top of the brief ----------
+function lastTimeLine(key) {
+  const d0 = localDate();
+  const visits = meetings(key).filter(m => m.status === "DONE" && m.date && m.date <= d0).sort((a, b) => (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")));
+  const ns = notes(key).filter(n => n.content);
+  const v = visits[0], n = ns[0];
+  const clip = t => { t = String(t || "").replace(/\s+/g, " ").trim(); return t.length > 140 ? t.slice(0, 137).replace(/\s\S*$/, "") + "…" : t; };
+  if (v && (!n || v.date >= n.date)) {
+    const txt = clip(v.notes) || clip(n && n.date === v.date ? n.content : "");
+    return `🤝 Last visit ${esc(niceDate(v.date))}${v.contacts ? " with " + esc(v.contacts) : ""}${txt ? ": " + esc(txt) : ""}`;
+  }
+  if (n) return `💬 Last note ${esc(niceDate(n.date))}${n.customer_name ? " with " + esc(n.customer_name) : ""}: ${esc(clip(n.content))}`;
+  return "";
+}
+
+// ---------- ⏰ RUNNING LATE: big buttons, two taps, opens a text ready to send ----------
+const isMobileNo = n => /^(\+?44|0)7\d{9}$/.test(digits(n).replace(/^\+/, "+"));
+function lateContact(key, m) {
+  const ppl = people(key), want = String((m && m.contacts) || "").split(/[,&/]| and /i)[0].trim().toLowerCase();
+  const byName = want ? ppl.find(p => p.name.toLowerCase() === want) || ppl.find(p => p.name.toLowerCase().split(" ")[0] === want.split(" ")[0]) : null;
+  const pick = p => p ? (p.numbers.find(x => isMobileNo(x.number)) || null) : null;
+  let p = byName, num = pick(byName);
+  if (!num) { const mc = ppl.find(x => x.is_main_contact) || ppl[0]; if (mc && pick(mc)) { p = byName || mc; num = pick(mc); } }
+  if (!num) for (const x of ppl) { const n = pick(x); if (n) { p = p || x; num = n; break; } }
+  const first = ((want && want.split(" ")[0]) || (p && p.name) || "").split(" ")[0];
+  return {first: first ? first[0].toUpperCase() + first.slice(1) : "", number: num ? num.number : "", who: p ? p.name : ""};
+}
+function lateTexts(first, x) {
+  const n = first ? " " + first : "";
+  return [`Sorry${n}, traffic is heavy, about ${x} mins away. See you shortly!`,
+          `Sorry${n}, got held up in the office, about ${x} mins away.`,
+          `Hi${n}, my ETA is about ${x} mins, hope that's alright. See you soon.`];
+}
+function runningLate(key, m) {
+  const c = IDX.co.get(String(key)); if (!c) return;
+  if (!m) m = meetings(key).filter(x => x.date === localDate() && x.status !== "DONE")[0] || null;
+  const lc = lateContact(key, m);
+  let mins = META.lateMins || 15;
+  const draw = el => {
+    const t = lateTexts(lc.first, mins);
+    el.querySelector("#lateBody").innerHTML = `
+      <div class="small" style="font-weight:700;margin:2px 0 6px">How late?</div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">${[15, 20, 30, 40].map(x => `<button class="btn" data-lm="${x}" style="min-height:62px;padding:6px 0;flex-direction:column;gap:0;font-size:22px;font-weight:800;${x === mins ? "background:var(--ink,#111827);color:#fff" : "background:var(--chip);color:inherit"}">${x}<div style="font-size:11px;font-weight:600">mins</div></button>`).join("")}</div>
+      <div class="small" style="font-weight:700;margin:14px 0 6px">Tap a message to send it${lc.number ? ` to ${esc(lc.who)}` : ""}</div>
+      ${t.map((x, i) => `<a class="btn block ${i ? "sec" : "green"}" style="min-height:64px;text-align:left;font-size:16px;line-height:1.3;padding:12px 14px;margin-bottom:8px;white-space:normal;display:flex;align-items:center"
+         href="${lc.number ? `sms:${esc(digits(lc.number))}&body=${encodeURIComponent(x)}` : `sms:&body=${encodeURIComponent(x)}`}" data-latesent="1">${esc(x)}</a>`).join("")}
+      ${lc.number ? "" : `<div class="banner soft">📵 <span>No mobile number on file for ${esc(c.name)} — the text opens without a recipient; pick them in Messages.</span></div>`}`;
+    el.querySelectorAll("[data-lm]").forEach(b => b.onclick = async () => { mins = +b.dataset.lm; META.lateMins = mins; await saveMeta(); draw(el); });
+    el.querySelectorAll("[data-latesent]").forEach(a => a.addEventListener("click", () => setTimeout(closeSheet, 300)));
+  };
+  openSheet(`<b style="font-size:19px">⏰ Running late · ${esc(c.name)}</b>${m && m.time ? `<div class="small">Meeting at ${esc(m.time)}</div>` : ""}<div id="lateBody" style="margin-top:10px"></div>
+    <button class="btn block sec" onclick="closeSheet()" style="min-height:52px;margin-top:4px">Cancel</button>`, el => draw(el));
+}
+
+// ---------- 📶 READY FOR NO SIGNAL: when a snapshot loads (on Wi-Fi), put every customer on the map now ----------
+async function readyForNoSignal() {
+  const pcs = [...new Set(scope().map(c => companyPostcode(c._key)).filter(Boolean).concat([homePc(), officePc()].filter(Boolean)))];
+  try { await ensureGeo(pcs, true); } catch (e) {}
+  META.readyAt = nowIso(); await saveMeta();
+}
+// stops today / next work day that the phone can't place (no postcode, or a postcode it couldn't find)
+function stopsNotReady() {
+  const out = [];
+  for (const d of [...new Set([localDate(), nextWorkday(1)])]) {
+    const keys = new Set((ROAD.plans[d] || []).map(String));
+    for (const c of scope()) for (const m of meetings(c._key)) if (m.date === d && m.status !== "DONE" && !isRemoteMeeting(m)) keys.add(c._key);
+    for (const k of keys) { const c = IDX.co.get(k); if (!c) continue; const pc = companyPostcode(k);
+      if (!pc || (GEO[pc] && GEO[pc].none)) out.push({d, key: k, name: c.name, why: pc ? "postcode not found" : "no postcode"}); }
+  }
+  return out;
+}

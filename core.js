@@ -83,6 +83,21 @@ async function loadAll() {
 }
 async function savePending() { await KV.set("pending", PENDING); buildIndex(); updateBadges(); }
 const saveMeta = () => KV.set("meta", META);
+const APP_V = 32;
+// 🧭 which app Directions open in (Apple Maps / Google Maps / Waze) — set on Plan my day or More
+const NAV_APPS = [["apple", "Apple Maps"], ["google", "Google Maps"], ["waze", "Waze"]];
+function navUrl(addr, geo) {
+  const app = META.navApp || "apple", a = String(addr || "").trim(), q = encodeURIComponent(a), ll = geo ? `${geo.lat},${geo.lon}` : "";
+  if (app === "waze") return a ? `https://waze.com/ul?q=${q}&navigate=yes` : `https://waze.com/ul?ll=${ll}&navigate=yes`;
+  if (app === "google") return `https://www.google.com/maps/dir/?api=1&destination=${a ? q : ll}&travelmode=driving`;
+  return `https://maps.apple.com/?daddr=${a ? q : ll}`;
+}
+const navName = () => (NAV_APPS.find(x => x[0] === (META.navApp || "apple")) || NAV_APPS[0])[1];
+
+function wireNavPicker(root) { (root || document).querySelectorAll("[data-nav]").forEach(b => b.onclick = async () => { META.navApp = b.dataset.nav; await saveMeta(); render(); }); }
+// 📍 how far "nearby" reaches (Home's Near you now and the Nearby page); 0 = no limit
+const NEAR_STEPS = [2, 5, 10, 20, 30, 50, 0];
+const nearMiles = () => (META.nearMiles === undefined ? 10 : +META.nearMiles);
 
 // ---------- colours: follow the PC by default (the PC is light unless Dark mode is ticked there) ----------
 const THEME_MODES = {pc: "Match the PC", light: "Light", dark: "Dark", phone: "Match iPhone setting"};
@@ -529,6 +544,8 @@ function calendarReminder() {
 // ---------- health banners (shown on Today & Sync) ----------
 function healthBanners() {
   const out = [];
+  try { const nr = typeof stopsNotReady === "function" && SNAP ? stopsNotReady() : [];
+    if (nr.length) out.push(`<a class="banner soft" href="#/plan/${nr[0].d}">🧭 <span>${nr.length === 1 ? esc(nr[0].name) + " (" + (nr[0].d === localDate() ? "today" : "next work day") + ") has" : nr.length + " of your upcoming stops have"} no ${nr.every(x => x.why === "no postcode") ? "postcode" : "postcode the map can find"} — route, "Arrived?" and miles can't work for ${nr.length === 1 ? "it" : "them"}</span><span class="chev">›</span></a>`); } catch (e) {}
   if (PENDING.length) {
     const oldest = PENDING.reduce((m, e) => e.created_at < m ? e.created_at : m, PENDING[0].created_at);
     const days = (Date.now() - new Date(oldest).getTime()) / 86400000;

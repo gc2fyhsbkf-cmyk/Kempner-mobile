@@ -168,7 +168,7 @@ route(/^#\/$/, () => {
     const addr = rows("addresses", c._key)[0];
     return `<div class="row ${m._pending ? "pend" : ""}"><div style="text-align:center;min-width:44px"><div style="font-size:11px;font-weight:800;color:var(--red)">${esc(niceDate(m.date).split(" ")[0].toUpperCase())}</div><div style="font-weight:800">${esc(m.time || "—")}</div></div>
       <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t">${MEETING_ICON[m.meeting_type || ""] || "🤝"} ${esc(c.name)}</div><div class="s">${esc(niceDate(m.date))}${m.location ? " · " + esc(m.location) : ""}${m.meeting_type ? " · " + esc(MEETING_TYPES[m.meeting_type] || m.meeting_type) : ""}</div></a>
-      ${addr ? `<a class="btn sm sec" href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭</a>` : ""}</div>`; }).join("")}</div>`);
+      ${addr ? `<a class="btn sm sec" href="${navUrl((addr.lines || "").replace(/\n/g, ", "))}">🧭</a>` : ""}</div>`; }).join("")}</div>`);
   h.push(`<h2 id="today-acts">Actions <span class="r small">${over.length + due.length + soon.length + later.length}</span></h2>
     <div class="seg" id="tTabs" style="margin-top:0">${Object.entries(BUCKETS).map(([k, [l, list]]) => `<button data-tb="${k}" class="${k === tab ? "on" : ""}">${l} <span class="muted">${list.length}</span></button>`).join("")}</div>
     <div id="tBody"></div>`);
@@ -350,7 +350,7 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
       ${qbtn(mc && dialable(mc.number), `tel:${esc(digits(mc && mc.number))}`, "phone", "Call", `data-call="${esc(key)}" data-num="${esc(mc && mc.number || "")}"`)}
       ${qbtn(mc && dialable(mc.number), `sms:${esc(digits(mc && mc.number))}`, "msg", "Text")}
       ${qbtn(mc && mc.email, `mailto:${esc(mc && mc.email || "")}`, "mail", "Email")}
-      ${qbtn(addr, `https://maps.apple.com/?daddr=${mapsQ}`, "nav", "Go")}
+      ${qbtn(addr, navUrl(addr ? (addr.lines || "").replace(/\n/g, ", ") : ""), "nav", "Go")}
       ${qbtn(true, `#/snap/${encodeURIComponent(key)}`, "zap", "Snapshot", "", "hot")}
       ${qbtn(true, `#/brief/${encodeURIComponent(key)}`, "brief", "Brief")}</div></div>`);
   const TABS = [["overview","Overview",""],["notes","Notes",nts.length],["actions","Actions",open.length],["meetings","Meetings",mts.length],["people","People",ppl.length],
@@ -420,7 +420,7 @@ const TAB_RENDER = {
     h.push(`<h2>📝 Latest notes<a class="r small" data-gotab="notes">All ${nts.length} ›</a></h2><div class="list">${notesHtml(nts, 3) || '<div class="empty">No notes yet.</div>'}</div>`);
     if (!addr) h.push(`<h2>📍 Address</h2><a class="banner soft" href="#/add/address/${encodeURIComponent(key)}">📍 <span>No address yet — add one (needed for Nearby, routes and mileage)</span><span class="chev">›</span></a>`);
     if (addr) h.push(`<h2>📍 Address<a class="r small" href="#/add/address/${encodeURIComponent(key)}">＋ Add</a></h2><div class="card ${addr._pending ? "pend" : ""}"><div class="body" style="white-space:pre-wrap">${esc(addr.lines)}${addr._pending ? " " + pendBadge({_pending: 1}) : ""}</div>
-      <div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm" href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭 Directions</a><button class="btn sm sec" data-copy="${esc((addr.lines || "").replace(/\n/g, ", "))}">⧉ Copy</button></div></div>`);
+      <div style="display:flex;gap:6px;margin-top:8px"><a class="btn sm" href="${navUrl((addr.lines || "").replace(/\n/g, ", "))}">🧭 Directions</a><button class="btn sm sec" data-copy="${esc((addr.lines || "").replace(/\n/g, ", "))}">⧉ Copy</button></div>${siteInfoHtml(key)}</div>`);
     if (c.vibe) h.push(`<h2>💬 Vibe</h2><div class="card">${esc(c.vibe)}</div>`);
     const qn = rows("quick_notes", key), cn = rows("competitor_notes", key).filter(x => x.content);
     if (qn.length || cn.length) h.push(`<h2>🗒 Scratchpad</h2><div class="list">${qn.map(q => `<div class="item"><div class="body">${esc(q.note)}</div></div>`).join("")}${cn.map(x => `<div class="item"><div class="meta">Competitors</div><div class="body">${esc(x.content)}</div></div>`).join("")}</div>`);
@@ -557,6 +557,7 @@ async function geocodeMissing(pcs, onProgress) {
   }
 }
 let HERE = null;
+let nearAll = false;
 route(/^#\/nearby$/, () => {
   setHeader("On the road", null, "road");
   const v = $("#view");
@@ -564,11 +565,17 @@ route(/^#\/nearby$/, () => {
   const cos = scope(), withPc = cos.map(c => [c, companyPostcode(c._key)]).filter(x => x[1]);
   const missing = withPc.filter(([, p]) => !GEO[p]).length;
   v.innerHTML = `${roadSeg("nearby")}<div class="card"><b>Customers near you</b><p class="small" style="margin:4px 0 10px">Uses your phone's location and each customer's postcode. ${withPc.length} of ${cos.length} have a postcode on file.${missing ? ` ${missing} postcode${missing === 1 ? "" : "s"} still need looking up (needs signal, done once and remembered — only the postcodes are sent to postcodes.io).` : ""}</p>
-    <button class="btn block red" id="locBtn">📍 ${HERE ? "Refresh my location" : "Find customers near me"}</button><div class="small" id="locMsg"></div></div><div id="nearList"></div>`;
+    <button class="btn block red" id="locBtn">📍 ${HERE ? "Refresh my location" : "Find customers near me"}</button><div class="small" id="locMsg"></div>
+    <div class="chips" style="margin-top:10px">${NEAR_STEPS.map(r => `<button class="fchip sm ${r === nearMiles() ? "on" : ""}" data-nmi="${r}">${r ? r + " mi" : "Any"}</button>`).join("")}</div></div><div id="nearList"></div>`;
+  v.querySelectorAll("[data-nmi]").forEach(b => b.onclick = async () => { META.nearMiles = +b.dataset.nmi; nearAll = false; await saveMeta(); render(); });
   const draw = () => {
     if (!HERE) return;
-    const list = withPc.filter(([, p]) => GEO[p] && !GEO[p].none).map(([c, p]) => [c, miles(HERE, GEO[p]), p]).sort((a, b) => a[1] - b[1]).slice(0, 60);
-    $("#nearList").innerHTML = `<h2>Closest first</h2><div class="list">${list.map(([c, d, p]) => coRow(c, `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} mi</span><button class="btn sm sec" data-plan="${esc(c._key)}" style="padding:4px 8px">＋🗓</button>`).replace('<div class="m">', `<div class="m" data-pc="${esc(p)}">`)).join("") || '<div class="empty">No customers with known locations yet.</div>'}</div>`;
+    const lim = nearMiles();
+    const all = withPc.filter(([, p]) => GEO[p] && !GEO[p].none).map(([c, p]) => [c, miles(HERE, GEO[p]), p]).filter(x => !lim || x[1] <= lim).sort((a, b) => a[1] - b[1]);
+    const list = nearAll ? all : all.slice(0, 60);
+    $("#nearList").innerHTML = `<h2>${all.length} ${lim ? `within ${lim} miles` : "with a postcode"} · closest first</h2><div class="list">${list.map(([c, d, p]) => coRow(c, `<span class="dist">${d < 10 ? d.toFixed(1) : Math.round(d)} mi</span><button class="btn sm sec" data-plan="${esc(c._key)}" style="padding:4px 8px">＋🗓</button>`).replace('<div class="m">', `<div class="m" data-pc="${esc(p)}">`)).join("") || `<div class="empty">${lim && withPc.some(([, p]) => GEO[p] && !GEO[p].none) ? `Nobody within ${lim} miles — try further.` : "No customers with known locations yet."}</div>`}</div>
+      ${all.length > list.length ? `<button class="btn block sec" id="nearMore" style="margin-top:8px">Show all ${all.length}</button>` : ""}`;
+    const nm = $("#nearMore"); if (nm) nm.onclick = () => { nearAll = true; draw(); };
   };
   $("#locBtn").onclick = async () => {
     const msg = $("#locMsg");
@@ -702,29 +709,10 @@ route(/^#\/sync$/, () => {
     <h2>Waiting to send <span class="r small">${PENDING.length}</span></h2>
     <div class="list">${PENDING.slice().reverse().map(e => `<div class="row"><div class="m"><div class="t" style="white-space:normal">${esc(describe(e))}</div>
       <div class="s">${esc(e.company_name || "")} · ${esc(e.created_at.replace("T", " ").slice(0, 16))}</div></div>${EDITABLE[e.type] ? `<button class="btn sm sec" data-edit-ev="${esc(e.id)}" style="margin-right:4px">✏️</button>` : ""}<button class="btn sm sec" data-del="${esc(e.id)}" style="color:var(--red)">✕</button></div>`).join("") || '<div class="empty">Nothing.</div>'}</div>
-    <h2>Settings</h2><div class="card">
-      <label class="f">Who am I? (for "Mine")</label><select class="f" id="userSel"><option value="">${SNAP && SNAP.current_user ? esc(SNAP.current_user) + " (from CRM)" : "Not set – show everyone"}</option>${users.map(u => `<option ${META.user === u.name ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>
-      <label class="f">Device name (shown on the PC when importing)</label><input class="f" id="devName" value="${esc(META.device || "")}" placeholder="e.g. Dan's iPhone">
-      <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
-      <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
-      <h2 style="margin-top:18px">💾 Backup & reminders</h2>
-      <p class="small" style="margin:0 0 6px">Your mileage, visits, day plans and card live only on this phone. Save a backup to Drive now and then; to restore, choose the backup file with 📥 Load snapshot.${META.lastBackup ? ` Last backup ${esc(ago(META.lastBackup))}.` : " No backup yet."}</p>
-      <button class="btn block sec" data-backup="1">💾 Back up this phone's data</button>
-      <button class="btn block sec" id="calRem" style="margin-top:8px">⏰ Weekday 5pm "send to CRM" reminder in my Calendar</button>
-      <button class="btn block sec" id="fullCopyBtn" style="margin-top:8px" ${SNAP ? "" : "disabled"}>📦 Export the full CRM copy (for the home laptop)</button>
-      <button class="btn block sec" id="wipeBtn" style="margin-top:8px;color:var(--red)">🧹 Clear this phone's data and start fresh</button>
-      <a class="btn block sec" href="#/card" style="margin-top:14px">🪪 My business card (QR)</a>
-      <a class="btn block sec" href="#/health" style="margin-top:8px">🩺 Customers missing info</a>
-      <p class="small" id="persist" style="margin-top:12px"></p><p class="small">App version 23 · data stays on this phone.</p></div>`;
+    <a class="card" href="#/settings" style="display:flex;align-items:center;gap:10px;color:inherit;margin-top:16px"><span style="font-size:20px">⚙️</span>
+      <div style="flex:1"><b>Settings, backup & reminders</b><div class="small">Who you are, mileage, directions, backup</div></div><span class="chev">›</span></a>`;
   $("#exportBtn").onclick = exportChanges;
   $("#importBtn").onclick = pickSnapshot;
-  $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
-  $("#devName").onchange = async e => { META.device = e.target.value.trim(); await saveMeta(); toast("Saved"); };
-  $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
-  $("#calRem").onclick = calendarReminder;
-  $("#wipeBtn").onclick = wipePhoneData;
-  $("#fullCopyBtn").onclick = exportFullCopy;
-  $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
   $("#view").querySelectorAll("[data-edit-ev]").forEach(b => b.onclick = () => editEventSheet(b.dataset.editEv));
   $("#view").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     const ev = PENDING.find(x => x.id === b.dataset.del);
@@ -735,6 +723,53 @@ route(/^#\/sync$/, () => {
     if (ev.type === "action_new") { const aid = phoneActionId(ev); gone = gone.concat(PENDING.filter(x => x.type === "action_done" && x.data.action_id === aid).map(x => x.id)); }
     PENDING = PENDING.filter(x => !gone.includes(x.id)); await savePending(); render();
   });
+  if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then(p => { const el = $("#persist"); if (el) el.textContent = p ? "✓ iOS won't clear this app's data automatically." : "Tip: open the app from the Home Screen icon so iOS keeps its data safe."; });
+});
+
+// ---------- ⚙️ SETTINGS: everything you set once, in one place ----------
+route(/^#\/settings$/, () => {
+  setHeader("Settings", "#/more", "more");
+  const users = (SNAP && SNAP.users) || [], rate = mileRateP();
+  const chips = (attr, opts, cur) => `<div class="chips">${opts.map(([v, l]) => `<button class="fchip sm ${String(v) === String(cur) ? "on" : ""}" ${attr}="${v}">${l}</button>`).join("")}</div>`;
+  $("#view").innerHTML = `
+    <h2>You</h2><div class="card">
+      <label class="f">Who am I? (for "Mine")</label><select class="f" id="userSel"><option value="">${SNAP && SNAP.current_user ? esc(SNAP.current_user) + " (from CRM)" : "Not set – show everyone"}</option>${users.map(u => `<option ${META.user === u.name ? "selected" : ""}>${esc(u.name)}</option>`).join("")}</select>
+      <label class="f">Device name (shown on the PC when importing)</label><input class="f" id="devName" value="${esc(META.device || "")}" placeholder="e.g. Dan's iPhone"></div>
+    <h2>Mileage</h2><div class="card"><div class="two">
+      <div><label class="f">Home postcode</label><input class="f" id="homePc" value="${esc(homePc())}" placeholder="e.g. LS1 4AB" autocapitalize="characters"></div>
+      <div><label class="f">Office postcode</label><input class="f" id="offPc" value="${esc(officePc())}" autocapitalize="characters"></div></div>
+      <label class="f">Rate per mile</label><input class="f" id="rate" inputmode="decimal" value="${esc(rate ? rate + "p" : "")}" placeholder="e.g. 45p or 0.45">${rate ? `<div class="small">= ${gbp(rate / 100)} a mile</div>` : ""}
+      <div class="small" style="margin-top:6px">Also changeable on the PC — whichever was changed last wins.</div></div>
+    <h2>On the road</h2><div class="card">
+      <label class="f">🧭 Directions open in</label>${chips("data-nav", NAV_APPS, META.navApp || "apple")}
+      <label class="f">📍 Ask "Arrived?" when I open the app within</label>${chips("data-arr", [[0.5, "½ mi"], [1, "1 mi"], [2, "2 mi"], [3, "3 mi"], [0, "Off"]], META.arriveOff ? 0 : arriveMiles())}
+      <label class="f">Nearby reaches</label>${chips("data-nmi", NEAR_STEPS.map(r => [r, r ? r + " mi" : "Any"]), nearMiles())}
+      <label class="f">"Worth a visit while you're there" reaches</label>${chips("data-rad", [3, 6, 10, 20, 30].map(r => [r, r + " mi"]), nearRadius())}</div>
+    <h2>Reminders & look</h2><div class="card">
+      <label class="f">Warn me when items haven't been sent for</label><select class="f" id="remSel">${[1, 2, 3, 7].map(d => `<option value="${d}" ${+META.remindDays === d ? "selected" : ""}>${d} day${d === 1 ? "" : "s"}</option>`).join("")}</select>
+      <label class="f">Colours</label><select class="f" id="themeSel">${Object.entries(THEME_MODES).map(([k, n]) => `<option value="${k}" ${(META.theme || "pc") === k ? "selected" : ""}>${n}${k === "pc" ? ` (${SNAP && SNAP.theme === "dark" ? "dark" : "light"})` : ""}</option>`).join("")}</select>
+      <button class="btn block sec" id="calRem" style="margin-top:12px">⏰ Weekday 5pm "send to CRM" reminder in my Calendar</button></div>
+    <h2>Backup & data</h2><div class="card">
+      <p class="small" style="margin:0 0 8px">Your mileage, visits, day plans and card live only on this phone. Save a backup now and then; to restore, choose the backup file with 📥 Load snapshot.${META.lastBackup ? ` Last backup ${esc(ago(META.lastBackup))}.` : " No backup yet."}</p>
+      <button class="btn block sec" data-backup="1">💾 Back up this phone's data</button>
+      <button class="btn block sec" id="fullCopyBtn" style="margin-top:8px" ${SNAP ? "" : "disabled"}>📦 Export the full CRM copy (for the home laptop)</button>
+      <button class="btn block sec" id="wipeBtn" style="margin-top:8px;color:var(--red)">🧹 Clear this phone's data and start fresh</button>
+      <p class="small" id="persist" style="margin-top:12px"></p></div>
+    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v${APP_V} · your data stays on this phone</p>`;
+  const v = $("#view");
+  $("#userSel").onchange = async e => { META.user = e.target.value; await saveMeta(); buildIndex(); toast("Saved"); };
+  $("#devName").onchange = async e => { META.device = e.target.value.trim(); await saveMeta(); toast("Saved"); };
+  $("#remSel").onchange = async e => { META.remindDays = +e.target.value; await saveMeta(); toast("Saved"); };
+  $("#themeSel").onchange = async e => { META.theme = e.target.value; await saveMeta(); applyTheme(); };
+  $("#calRem").onclick = calendarReminder; $("#wipeBtn").onclick = wipePhoneData; $("#fullCopyBtn").onclick = exportFullCopy;
+  // a mileage settings change is sent with the next export (and says when, so the newest of phone/PC wins)
+  const setChanged = () => { META.mileSetAt = nowIso(); META.roadDirty = true; };
+  $("#offPc").onchange = async e => { META.officePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([officePc()]); toast("Saved"); };
+  $("#homePc").onchange = async e => { META.homePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([homePc()]); toast("Saved"); };
+  $("#rate").onchange = async e => { META.mileRate = e.target.value.trim(); META.mileRate = mileRateP() || ""; setChanged(); await saveMeta(); render(); };
+  wireNavPicker(v); wireArrivePicker(v);
+  v.querySelectorAll("[data-nmi]").forEach(b => b.onclick = async () => { META.nearMiles = +b.dataset.nmi; await saveMeta(); render(); });
+  v.querySelectorAll("[data-rad]").forEach(b => b.onclick = () => { try { localStorage.setItem("kempner_near_radius", b.dataset.rad); } catch (e) {} render(); });
   if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then(p => { const el = $("#persist"); if (el) el.textContent = p ? "✓ iOS won't clear this app's data automatically." : "Tip: open the app from the Home Screen icon so iOS keeps its data safe."; });
 });
 
