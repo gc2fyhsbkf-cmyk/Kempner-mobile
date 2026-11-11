@@ -14,7 +14,7 @@ const isRemoteMeeting = m => REMOTE_RE.test(`${m.location || ""} ${m.notes || ""
 function roadExport() {
   const since = addDays(-120), days = [...new Set(ROAD.visits.filter(v => v.date >= since).map(v => v.date))].sort();
   const realId = k => { const c = IDX.co.get(String(k)); return c && c.id != null && !String(k).startsWith("t:") ? c.id : null; };
-  return {exported_at: nowIso(), home_pc: homePc(), office_pc: officePc(), rate_p: mileRateP(),
+  return {exported_at: nowIso(), home_pc: homePc(), office_pc: officePc(), rate_p: mileRateP(), settings_set_at: META.mileSetAt || "",
     claimed: Object.fromEntries(Object.entries(ROAD.mileage).filter(([k, v]) => k.startsWith("claimed:") && v).map(([k]) => [k.slice(8), true])),
     days: days.map(d => { const cfg = ROAD.mileage[d] || {}, {s, e} = dayEnds(cfg), legs = dayLegs(d);
       return {date: d, start: s, end: e,
@@ -29,7 +29,19 @@ boot = async () => { await loadRoad(); await mergePcPlans(); return _bootCore();
 // Each snapshot carries the PC's plans from today on. A day you haven't touched on the phone just takes the PC's list;
 // a day you've changed here keeps your changes, gains any stops newly added on the PC and loses ones removed there.
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+// mileage settings changed on the PC come over in the snapshot; the newer of the two wins
+async function mergePcMileSettings() {
+  const m = SNAP && SNAP.mileage_settings;
+  if (!m || !m.set_at || (META.mileSetAt && META.mileSetAt >= m.set_at)) return false;
+  if (m.home_pc) META.homePostcode = m.home_pc;
+  if (m.office_pc) META.officePostcode = m.office_pc;
+  if (m.rate_p !== undefined && m.rate_p !== "") META.mileRate = +m.rate_p || "";
+  META.mileSetAt = m.set_at; await saveMeta();
+  try { await ensureGeo([homePc(), officePc()].filter(Boolean)); } catch (e) {}
+  return true;
+}
 async function mergePcPlans() {
+  try { await mergePcMileSettings(); } catch (e) {}
   if (!SNAP || !SNAP.plans || ROAD.pc.merged === SNAP.exported_at) return 0;
   const today = localDate(), pcPlans = {}; let changed = 0;
   for (const [d, list] of Object.entries(SNAP.plans)) if (d >= today) pcPlans[d] = list;
@@ -416,9 +428,11 @@ route(/^#\/mileage(?:\/(\d{4}-\d{2}))?$/, mArg => {
       <div><label class="f">Rate per mile</label><input class="f" id="rate" inputmode="decimal" value="${esc(rate ? rate + "p" : "")}" placeholder="e.g. 45p or 0.45">${rate ? `<div class="small">= ${gbp(rate / 100)} a mile</div>` : ""}</div></div>
       <p class="small">Road miles come from OpenStreetMap routing (needs signal; only the two postcodes' map points are sent). Without signal you get a straight-line estimate × 1.25, marked ≈.</p></div>`;
   const v = $("#view");
-  v.querySelector("#offPc").onchange = async e => { META.officePostcode = e.target.value.toUpperCase().trim(); await saveMeta(); await ensureGeo([officePc()]); render(); };
-  v.querySelector("#homePc").onchange = async e => { META.homePostcode = e.target.value.toUpperCase().trim(); await saveMeta(); await ensureGeo([homePc()]); render(); };
-  v.querySelector("#rate").onchange = async e => { META.mileRate = e.target.value.trim(); META.mileRate = mileRateP() || ""; await saveMeta(); render(); };
+  // a settings change is sent with the next export (and says when, so the newest of phone/PC wins)
+  const setChanged = () => { META.mileSetAt = nowIso(); META.roadDirty = true; };
+  v.querySelector("#offPc").onchange = async e => { META.officePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([officePc()]); render(); };
+  v.querySelector("#homePc").onchange = async e => { META.homePostcode = e.target.value.toUpperCase().trim(); setChanged(); await saveMeta(); await ensureGeo([homePc()]); render(); };
+  v.querySelector("#rate").onchange = async e => { META.mileRate = e.target.value.trim(); META.mileRate = mileRateP() || ""; setChanged(); await saveMeta(); render(); };
   v.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => { const [d, i] = b.dataset.edit.split("|"), cur = (dayLegs(d).find(l => l.i === i) || {}).mi;
     const ans = prompt("Miles for this leg (leave blank to reset):", cur == null ? "" : cur); if (ans === null) return;
     const cfg = ROAD.mileage[d] || (ROAD.mileage[d] = {}); cfg.over = cfg.over || {};

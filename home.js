@@ -151,7 +151,7 @@ route(/^#\/more$/, () => {
       ${t("#/sync", "🔄", "#0891b2", "Sync", "Send changes, load the CRM", n || "")}
       ${t("#cal", "📅", "#e11d2e", "Meetings → Calendar", `${upcomingMeetings().length} upcoming · no doubles`)}
     </div>
-    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v28</p>`;
+    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v29</p>`;
   const cal = $("#view").querySelector('[href="#cal"]');
   if (cal) cal.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
 });
