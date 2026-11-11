@@ -34,19 +34,21 @@ route(/^#\/home$/, () => {
       <div class="small">${esc(new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long"}))}</div></div>
     <input class="search" id="hq" type="search" placeholder="Find a company, person or postcode…" autocomplete="off">
     ${hasCard ? `<a href="#/card/qr" class="homecard" aria-label="Show my business card QR"><div class="bcface">${cardFrontHtml(card)}</div></a>
-      <div class="small" style="text-align:center;margin:-2px 0 10px">Tap your card to show the QR · <a href="#/card">front</a></div>`
-      : `<a class="banner soft" href="#/card/edit">🪪 <span>Set up your business card (QR people scan to save you)</span><span class="chev">›</span></a>`}
-    ${nc ? `<h2>➡️ Up next</h2><div class="card"><div style="font-weight:800;font-size:17px">${esc(nc.name)}</div>
+      <div class="small" style="text-align:center;margin:-2px 0 10px">Tap your card to show the QR · <a href="#/card">front</a></div>` : ""}
+    ${nc ? `<h2>Up next</h2><div class="card"><div style="font-weight:800;font-size:17px">${esc(nc.name)}</div>
         <div class="small">${esc(nx.why)}${nx.note ? " · " + esc(nx.note) : ""}${addr ? " · " + esc((addr.lines || "").split("\n").slice(-2).join(", ")) : ""}</div>
         <div class="hq4">${addr ? `<a href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭<span>Directions</span></a>` : ""}
           <a href="#/brief/${encodeURIComponent(nx.key)}">📋<span>Brief</span></a>
           <button id="hCheck">📍<span>Check in</span></button>
           ${mc && dialable(mc.number) ? `<a href="tel:${esc(digits(mc.number))}" data-call="${esc(nx.key)}" data-num="${esc(mc.number)}">📞<span>Call</span></a>` : ""}</div></div>`
-      : `<a class="banner soft" href="#/plan" style="margin-top:4px">🗓 <span>Nothing planned yet today — plan your visits</span><span class="chev">›</span></a>`}
+      : ""}
+    ${(!nc || !hasCard) ? `<div class="list nudges">${!nc ? `<a class="row" href="#/plan"><span class="ni" style="--k:#2563eb">${ICON("cal", 18)}</span><div class="m"><div class="t">Plan today's visits</div><div class="s">Nothing planned yet — route, briefs and mileage</div></div><span class="chev">›</span></a>` : ""}
+      ${!hasCard ? `<a class="row" href="#/card/edit"><span class="ni" style="--k:#e11d2e">${ICON("user", 18)}</span><div class="m"><div class="t">Set up your business card</div><div class="s">A QR people scan to save your details</div></div><span class="chev">›</span></a>` : ""}</div>` : ""}
     <a class="small" href="#/dropin" style="display:block;text-align:right;margin:4px 6px 0">📍 Popped in somewhere not on your list? Drop-in ›</a>
-    ${(r => r.length ? `<h2>🕘 Recently opened</h2><div class="scrollx" style="padding-top:0">${r.map(c => `<a class="fchip" href="${coHref(c._key)}">${esc(c.name)}</a>`).join("")}</div>` : "")((META.recent || []).map(k => IDX.co.get(k)).filter(Boolean).slice(0, 6))}
+    ${(r => r.length ? `<h2>Recently opened</h2><div class="recentchips">${r.map(c => { const col = TEMP_COL[companyStatus(c)] || "#94a3b8";
+      return `<a href="${coHref(c._key)}"><span class="av" style="background:linear-gradient(145deg,${col},${col}cc)">${esc(initials(c.name))}</span><span class="nm">${esc(c.name)}</span></a>`; }).join("")}</div>` : "")((META.recent || []).map(k => IDX.co.get(k)).filter(Boolean).slice(0, 6))}
     <div id="homeNear"></div>
-    <h2>⚡ Quick</h2>
+    <h2>Quick add</h2>
     <div class="sgrid">${tiles.map(([i, l, col, k]) => k.startsWith("#") ? `<a href="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</a>`
       : `<button data-q="${k}"><span class="ic" style="background:${col}">${i}</span>${l}</button>`).join("")}</div>
     <div class="list" style="margin-top:14px">
@@ -149,7 +151,7 @@ route(/^#\/more$/, () => {
       ${t("#/sync", "🔄", "#0891b2", "Sync", "Send changes, load the CRM", n || "")}
       ${t("#cal", "📅", "#e11d2e", "Meetings → Calendar", `${upcomingMeetings().length} upcoming · no doubles`)}
     </div>
-    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v26</p>`;
+    <p class="small" style="text-align:center;margin:18px 0 6px">Kempner Mobile · v28</p>`;
   const cal = $("#view").querySelector('[href="#cal"]');
   if (cal) cal.onclick = e => { e.preventDefault(); addAllMeetingsToCalendar(); };
 });

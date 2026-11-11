@@ -331,6 +331,61 @@ html.dark .banner.soft{background:var(--card);color:var(--txt)}
 .recentchips .nm{width:70px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qa-gen{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 4px}
 .qa-gen a,.qa-gen button{display:flex;align-items:center;gap:8px;border:0;background:var(--bg);border-radius:14px;padding:11px 10px;font-size:13.5px;font-weight:700;color:var(--txt)}
+
+/* ═════════ v27: customer page ═════════ */
+.cohead.hero{padding:18px 18px 16px}
+.hrow{display:flex;align-items:center;gap:13px}
+.coav{width:54px;height:54px;flex:none;border-radius:18px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:19px;letter-spacing:.02em;box-shadow:0 6px 16px rgba(15,23,42,.16)}
+.hmain{flex:1;min-width:0}
+.hero .nm{font-size:22px;font-weight:800;line-height:1.15;letter-spacing:-.02em;word-break:break-word}
+.hsub{font-size:13.5px;color:var(--sub);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero .score{width:40px;height:40px;font-size:13px}
+.hero .tchips{flex-wrap:nowrap;overflow-x:auto;gap:6px;margin:14px -18px 0;padding:0 18px 2px;scrollbar-width:none}
+.hero .tchips::-webkit-scrollbar{display:none}
+.hero .tchips button{flex:none;display:inline-flex;align-items:center;gap:6px;border:0;background:var(--bg);color:var(--sub);border-radius:999px;padding:6px 12px 6px 10px;font-size:13px;font-weight:700}
+.hero .tchips button i{width:8px;height:8px;border-radius:50%;background:var(--tc)}
+.hero .tchips button.on{background:var(--tc);color:#fff!important}
+.hero .tchips button.on i{background:#fff}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.facts>div{background:var(--bg);border-radius:14px;padding:9px 10px;min-width:0}
+.facts span{display:block;font-size:10.5px;font-weight:750;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.facts b{display:block;font-size:13.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero .qa{grid-template-columns:repeat(6,1fr);gap:4px;margin-top:14px}
+.hero .qa a{background:none;padding:2px 0;gap:5px;font-size:11.5px;color:var(--txt)}
+.hero .qa .qi{width:46px;height:46px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;color:var(--ink)}
+.hero .qa a.hot .qi{background:linear-gradient(145deg,#f0303f,#c8101f);color:#fff;box-shadow:0 6px 14px rgba(225,29,46,.3)}
+.hero .qa .off{opacity:.3}
+.ctabs{margin:0 -16px;padding:10px 16px 8px}
+
+.row .t{font-size:15.5px}
+.done{border:0;background:var(--green-soft);color:var(--green);width:34px;height:34px}
+.push{background:var(--bg);color:var(--sub);width:34px;height:34px}
+.cdone{border:0;background:var(--green-soft)}
+.list .row .s{font-size:13px}
+
+.grp .gtop{display:flex;align-items:center;gap:8px}
+.grp .gdate{font-size:12.5px;color:var(--muted);font-weight:650}
+.gst{font-size:11px;font-weight:800;color:var(--sc);background:color-mix(in srgb,var(--sc) 14%,transparent);padding:2px 8px;border-radius:999px}
+.gamt{margin-left:auto;font-weight:800;font-size:16px;font-variant-numeric:tabular-nums}
+.grp .ghl{font-weight:750;font-size:15.5px;margin:4px 0 2px}
+.grp .tot{color:var(--muted);font-weight:600;font-size:12px}
+.ctiles.soft{grid-template-columns:repeat(3,1fr);gap:8px;padding:12px}
+.ctiles.soft .st{background:color-mix(in srgb,var(--k) 9%,var(--card));border-radius:14px;padding:10px 10px;min-width:0}
+.ctiles.soft .st b{display:block;color:var(--k);font-size:18px;font-weight:800;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctiles.soft .st span{font-size:11.5px;font-weight:650;color:var(--sub)}
+.item .body{font-size:15px;line-height:1.45}
+
+.stiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:4px 0 8px}
+.stiles .st{background:var(--card);border-radius:16px;padding:11px 10px 10px;box-shadow:var(--shadow);color:var(--txt);position:relative;overflow:hidden}
+.stiles .st::before{content:"";position:absolute;left:10px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--k)}
+.stiles .st b{display:block;font-size:24px;font-weight:800;letter-spacing:-.03em;margin-top:12px;color:var(--k)}
+.stiles .st span{font-size:11.5px;font-weight:650;color:var(--sub)}
+.nudges .ni{width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--k);background:color-mix(in srgb,var(--k) 12%,transparent);flex:none}
+
+body.noTabs #tabs{display:none}
+body.noTabs{padding-bottom:calc(var(--bot) + 24px)}
+body.noTabs .formbar{bottom:var(--bot);padding-bottom:10px}
+body.noTabs #toast{bottom:calc(var(--bot) + 80px)}
 </style>
 </head>
 <body>

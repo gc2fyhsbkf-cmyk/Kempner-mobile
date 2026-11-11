@@ -53,10 +53,10 @@ function quietRow(c, extraRight = "") { // Lobby leads: no score, no warnings �
 }
 function actionRow(c, a, showCo = true) {
   return `<div class="row ${a._pending || a._moved ? "pend" : ""}">
-    <button class="done" data-done="${esc(c._key)}|${esc(a.id)}" aria-label="Mark done">✓</button>
+    <button class="done" data-done="${esc(c._key)}|${esc(a.id)}" aria-label="Mark done">${ICON("check", 17, 2.6)}</button>
     <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t" style="white-space:normal">${a.pinned ? "📌 " : ""}${a.tier == 1 ? "⭐ " : ""}${esc(a.note)}</div>
     <div class="s"><span class="${dueClass(a.date)}">${niceDate(a.date) || "No date"}${a.time ? " " + esc(a.time) : ""}</span>${showCo ? " · " + esc(c.name) : ""}${a.channel ? " · " + esc(a.channel) : ""}${a._pending ? " · not synced" : a._moved ? " · moved, not synced" : ""}</div></a>
-    <button class="push" data-push="${esc(c._key)}|${esc(a.id)}" aria-label="Reschedule">⏭</button></div>`;
+    <button class="push" data-push="${esc(c._key)}|${esc(a.id)}" aria-label="Reschedule">${ICON("clock", 17)}</button></div>`;
 }
 // ⏭ push / reschedule an action
 document.addEventListener("click", e => { const b = e.target.closest("[data-push]"); if (!b) return; e.preventDefault(); e.stopPropagation();
@@ -156,20 +156,20 @@ route(/^#\/$/, () => {
   h.push(`<div id="nearStop"></div>`);
   const BUCKETS = {over: ["⚠ Overdue", over], due: ["⏰ Today", due], soon: ["📅 This week", soon], all: ["All", over.concat(due, soon, later)]};
   let tab = META.todayTab && BUCKETS[META.todayTab] ? META.todayTab : (due.length ? "due" : over.length ? "over" : "soon");
-  h.push(`<div class="tiles">
-    <a class="tile" style="background:#b45309" href="#today-pin"><b>${pinned.length}</b><span>📌 Pinned</span></a>
-    <a class="tile" style="background:var(--red)" href="#" data-tt="over"><b>${over.length}</b><span>Overdue</span></a>
-    <a class="tile" style="background:var(--amber);color:#111" href="#" data-tt="due"><b>${due.length}</b><span>Due today</span></a>
-    <a class="tile" style="background:var(--blue)" href="#today-mt"><b>${mt.length}</b><span>Meetings 7d</span></a></div>`);
+  h.push(`<div class="stiles">
+    <a class="st" style="--k:#e11d2e" href="#" data-tt="over"><b>${over.length}</b><span>Overdue</span></a>
+    <a class="st" style="--k:#d97706" href="#" data-tt="due"><b>${due.length}</b><span>Due today</span></a>
+    <a class="st" style="--k:#2563eb" href="#today-mt"><b>${mt.length}</b><span>Meetings</span></a>
+    <a class="st" style="--k:#92400e" href="#today-pin"><b>${pinned.length}</b><span>Pinned</span></a></div>`);
   h.push(todayPlanCard());
-  h.push(`<h2 id="today-pin">📌 Pinned <span class="r small">${pinned.length}</span></h2>${pinned.length ? `<div class="list">${pinned.map(([c, a]) => actionRow(c, a)).join("")}</div>`
+  h.push(`<h2 id="today-pin">Pinned <span class="r small">${pinned.length}</span></h2>${pinned.length ? `<div class="list">${pinned.map(([c, a]) => actionRow(c, a)).join("")}</div>`
     : `<div class="card small">Pin the actions you want in front of you (📌 on the PC, or ⏭ → Pin here) and they'll sit at the top. Everything else is still below, just tucked away.</div>`}`);
-  if (mt.length) h.push(`<h2 id="today-mt">🤝 Meetings — next 7 days</h2><div class="list">${mt.map(([c, m]) => {
+  if (mt.length) h.push(`<h2 id="today-mt">Meetings · next 7 days</h2><div class="list">${mt.map(([c, m]) => {
     const addr = rows("addresses", c._key)[0];
     return `<div class="row ${m._pending ? "pend" : ""}"><div style="text-align:center;min-width:44px"><div style="font-size:11px;font-weight:800;color:var(--red)">${esc(niceDate(m.date).split(" ")[0].toUpperCase())}</div><div style="font-weight:800">${esc(m.time || "—")}</div></div>
       <a class="m" href="${coHref(c._key)}" style="color:inherit"><div class="t">${MEETING_ICON[m.meeting_type || ""] || "🤝"} ${esc(c.name)}</div><div class="s">${esc(niceDate(m.date))}${m.location ? " · " + esc(m.location) : ""}${m.meeting_type ? " · " + esc(MEETING_TYPES[m.meeting_type] || m.meeting_type) : ""}</div></a>
       ${addr ? `<a class="btn sm sec" href="https://maps.apple.com/?daddr=${encodeURIComponent((addr.lines || "").replace(/\n/g, ", "))}">🧭</a>` : ""}</div>`; }).join("")}</div>`);
-  h.push(`<h2 id="today-acts">📋 Other actions <span class="r small">${over.length + due.length + soon.length + later.length}</span></h2>
+  h.push(`<h2 id="today-acts">Actions <span class="r small">${over.length + due.length + soon.length + later.length}</span></h2>
     <div class="seg" id="tTabs" style="margin-top:0">${Object.entries(BUCKETS).map(([k, [l, list]]) => `<button data-tb="${k}" class="${k === tab ? "on" : ""}">${l} <span class="muted">${list.length}</span></button>`).join("")}</div>
     <div id="tBody"></div>`);
   const drawBucket = () => {
@@ -192,14 +192,14 @@ route(/^#\/$/, () => {
   // CRM's own Today-page lists
   const mine = new Set(keys);
   const reo = ((SNAP && SNAP.today && SNAP.today.reorder_digest) || []).filter(r => mine.has(String(r.company_id))).slice(0, 12);
-  if (reo.length) h.push(`<h2>🎞 Film reorders to chase</h2><div class="list">${reo.map(r => {
+  if (reo.length) h.push(`<h2>Film reorders to chase</h2><div class="list">${reo.map(r => {
     const st = r.state === "overdue" ? ["c-red", "Overdue"] : r.at_risk ? ["c-red", "At risk"] : r.state === "due" ? ["c-amber", "Due"] : ["c-blue", "Soon"];
     const dd = r.days_until == null ? "" : r.days_until < 0 ? `${-r.days_until}d late` : `in ${r.days_until}d`;
     return `<a class="row" href="${coHref(r.company_id)}"><div class="m"><div class="t">${esc(r.company)}</div><div class="s">${esc(r.film_name || "")}${r.last_order ? " · last " + esc(niceDate(r.last_order)) : ""}</div></div>
       <span class="chip ${st[0]}">${st[1]}${dd ? " · " + dd : ""}</span></a>`; }).join("")}</div>`);
   const na = ((SNAP && SNAP.today && SNAP.today.needs_attention) || []).filter(r => mine.has(String(r.company_id))).slice(0, 10);
   const FL = {high_value_cold: "High value · cold", overdue_action: "Dropped follow-up", nothing_scheduled: "Nothing planned", cold: "Gone cold"};
-  if (na.length) h.push(`<h2>👀 Needs a nudge</h2><div class="list">${na.map(r => `<a class="row" href="${coHref(r.company_id)}"><div class="m"><div class="t">${esc(r.company)}</div>
+  if (na.length) h.push(`<h2>Needs a nudge</h2><div class="list">${na.map(r => `<a class="row" href="${coHref(r.company_id)}"><div class="m"><div class="t">${esc(r.company)}</div>
       <div class="s">${(r.flags || []).map(f => FL[f] || f).join(" · ")}${r.days_silent != null ? ` · ${r.days_silent} days silent` : ""}</div></div><span class="chev">›</span></a>`).join("")}</div>`);
   v.innerHTML = h.join("");
   drawBucket();
@@ -214,7 +214,7 @@ route(/^#\/$/, () => {
 // ---------- COMPANIES ----------
 let coQuery = "", coLimit = 80, coStatus = "";
 route(/^#\/companies$/, () => {
-  setHeader("Companies", null, "companies");
+  setHeader("Customers", null, "companies");
   const v = $("#view");
   if (!SNAP && !PENDING.length) { v.innerHTML = welcomeCard(); return; }
   const sts = (SNAP && SNAP.status_options) || ["URGENT","WARM","COLD","OK","DEAD","CONTACT","NONE"];
@@ -329,25 +329,30 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
   const over = open.filter(a => a.date && dayDiff(a.date) < 0).length;
   const mapsQ = addr ? encodeURIComponent((addr.lines || "").replace(/\n/g, ", ")) : "";
   const h = [];
-  h.push(`<div class="cohead ${c._pending ? "pend" : ""}">
-    <div style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:12px;height:12px;background:${esc(STATUS_COL[st] || "#dde1ea")}"></span>
-      <div class="nm">${esc(c.name)}${c._pending ? '<span class="badge">new – not synced</span>' : ""}</div>
-      ${v.score != null && !isQuiet(c) ? `<span class="score ${scoreCls(v.score)}">${esc(v.score)}</span>` : ""}</div>
-    ${segOf(c) ? (li => `<div class="banner soft" style="margin:8px 0 0;display:flex;align-items:center;gap:8px"><span>${segOf(c) === LOBBY ? "🛋" : "🗂"} In the <b>${esc(segOf(c))}</b>${li.why ? ` · ${esc(li.why)}` : ""}${pend(key, "segment_set").length ? " · change not synced" : ""}</span><button class="btn sm green" id="promoteBtn" style="margin-left:auto;flex:none">⬆ Promote</button></div>`)(leadInfo(c)) : ""}
-    <div class="tchips" id="tchips">${["URGENT", "WARM", "COLD", "OK", "CONTACT", "DEAD", "NONE"].map(x => { const col = TEMP_COL[x] || "#9aa3af";
-      return `<button data-temp="${x}" class="${x === st ? "on" : ""}" style="border-color:${col};color:${col};${x === st ? `background:${col}` : ""}">${TEMP_NAME[x]}</button>`; }).join("")}</div>
-    <a class="banner soft" href="#/snap/${encodeURIComponent(key)}" style="margin:8px 0 0">📞 <span><b>On a call?</b> Open the snapshot — prices, last order, what you last discussed</span><span class="chev">›</span></a>
-    <div style="margin-top:6px"><span class="chip c-blue">📈 ${esc(c.pipeline_stage || "Prospect")}</span>${v.owners ? `<span class="chip">🧑‍💼 ${esc(v.owners)}</span>` : ""}${v.reorder ? `<span class="chip c-${esc(v.reorder.tone === "sub" ? "" : v.reorder.tone)}">${esc(v.reorder.text)}</span>` : ""}${c.region ? `<span class="chip">📍 ${esc(c.region)}</span>` : ""}</div>
-    ${v.last_contact ? `<div class="small" style="margin-top:6px">Last contact: <b>${esc(v.last_contact)}</b></div>` : ""}
-    ${mc ? `<div class="small" style="margin-top:2px">👤 ${esc(mc.name)}${mc.role ? " · " + esc(mc.role) : ""}${mc.number ? ` · ${telLink(mc.number, key)}` : ""}</div>` : ""}
-    ${v.rate ? `<div style="margin-top:4px"><b class="t-green">${esc(v.rate.text)}</b> <span class="small">${esc(v.rate.sub || "")}</span></div>` : ""}
+  const tcol = TEMP_COL[st] || "#94a3b8";
+  const qbtn = (on, href, icon, label, extra = "", cls = "") => `<a class="${on ? "" : "off"} ${cls}" href="${href}" ${extra}><span class="qi">${ICON(icon, 21)}</span>${label}</a>`;
+  h.push(`<div class="cohead hero ${c._pending ? "pend" : ""}">
+    <div class="hrow">
+      <span class="coav" style="background:linear-gradient(145deg,${tcol},${tcol}cc)">${esc(initials(c.name))}</span>
+      <div class="hmain"><div class="nm">${esc(c.name)}${c._pending ? '<span class="badge">new – not synced</span>' : ""}</div>
+        <div class="hsub">${mc ? `${esc(mc.name)}${mc.role ? " · " + esc(mc.role) : ""}` : "No main contact yet"}${c.region ? ` · ${esc(c.region)}` : ""}</div></div>
+      ${v.score != null && !isQuiet(c) ? `<span class="score ${scoreCls(v.score)}" title="Health score">${esc(v.score)}</span>` : ""}</div>
+    ${segOf(c) ? (li => `<div class="banner soft" style="margin:12px 0 0;display:flex;align-items:center;gap:8px"><span>${segOf(c) === LOBBY ? "🛋" : "🗂"} In the <b>${esc(segOf(c))}</b>${li.why ? ` · ${esc(li.why)}` : ""}${pend(key, "segment_set").length ? " · change not synced" : ""}</span><button class="btn sm green" id="promoteBtn" style="margin-left:auto;flex:none">⬆ Promote</button></div>`)(leadInfo(c)) : ""}
+    <div class="tchips" id="tchips">${["URGENT", "WARM", "OK", "COLD", "CONTACT", "DEAD", "NONE"].map(x => { const col = TEMP_COL[x] || "#9aa3af";
+      return `<button data-temp="${x}" class="${x === st ? "on" : ""}" style="--tc:${col}"><i></i>${TEMP_NAME[x]}</button>`; }).join("")}</div>
+    <div class="facts">
+      <div><span>Last contact</span><b>${esc((m => m ? m[1] : (v.last_contact || "—"))(String(v.last_contact || "").match(/\(([^)]+)\)/)))}</b></div>
+      <div><span>Stage</span><b>${esc(c.pipeline_stage || "Prospect")}</b></div>
+      ${v.rate ? `<div><span>Film use</span><b class="t-green">${esc(String(v.rate.text).replace(/^≈\s*/, "≈").replace(/\s*rolls?\/yr/, "/yr"))}</b></div>` : v.reorder ? `<div><span>Film</span><b>${esc(v.reorder.text)}</b></div>` : `<div><span>Owner</span><b>${esc(v.owners || "—")}</b></div>`}
+    </div>
+    ${v.reorder && v.rate ? `<div style="margin-top:8px"><span class="chip c-${esc(v.reorder.tone === "sub" ? "" : v.reorder.tone)}">${esc(v.reorder.text)}</span>${v.owners ? `<span class="chip">🧑‍💼 ${esc(v.owners)}</span>` : ""}</div>` : ""}
     <div class="qa">
-      <a class="${mc && dialable(mc.number) ? "" : "off"}" href="tel:${esc(digits(mc && mc.number))}" data-call="${esc(key)}" data-num="${esc(mc && mc.number || "")}"><span class="i">📞</span>Call</a>
-      <a class="${mc && dialable(mc.number) ? "" : "off"}" href="sms:${esc(digits(mc && mc.number))}"><span class="i">💬</span>Text</a>
-      <a class="${mc && mc.email ? "" : "off"}" href="mailto:${esc(mc && mc.email || "")}"><span class="i">✉️</span>Email</a>
-      <a class="${addr ? "" : "off"}" href="https://maps.apple.com/?daddr=${mapsQ}"><span class="i">🧭</span>Directions</a>
-      <a href="#/brief/${encodeURIComponent(key)}"><span class="i">📋</span>Brief</a>
-      <button id="addBtn" style="background:var(--red);color:#fff"><span class="i">＋</span>Add</button></div></div>`);
+      ${qbtn(mc && dialable(mc.number), `tel:${esc(digits(mc && mc.number))}`, "phone", "Call", `data-call="${esc(key)}" data-num="${esc(mc && mc.number || "")}"`)}
+      ${qbtn(mc && dialable(mc.number), `sms:${esc(digits(mc && mc.number))}`, "msg", "Text")}
+      ${qbtn(mc && mc.email, `mailto:${esc(mc && mc.email || "")}`, "mail", "Email")}
+      ${qbtn(addr, `https://maps.apple.com/?daddr=${mapsQ}`, "nav", "Go")}
+      ${qbtn(true, `#/snap/${encodeURIComponent(key)}`, "zap", "Snapshot", "", "hot")}
+      ${qbtn(true, `#/brief/${encodeURIComponent(key)}`, "brief", "Brief")}</div></div>`);
   const TABS = [["overview","Overview",""],["notes","Notes",nts.length],["actions","Actions",open.length],["meetings","Meetings",mts.length],["people","People",ppl.length],
     ["commercial","Commercial",qg.length + og.length],["equipment","Equipment",eq.length + specs.length],["files","Files",files.length]];
   h.push(`<div class="ctabs" id="ctabs">${TABS.map(([k, l, n]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}${n !== "" ? `<span class="n">${n}</span>` : ""}</button>`).join("")}</div><div id="tabBody"></div>`);
@@ -369,7 +374,6 @@ route(/^#\/c\/([^/]+)(?:\/(\w+))?$/, (key, tabArg) => {
     const ph = e.target.closest("[data-photo]"); if (ph) { const ev = PENDING.find(x => x.id === ph.dataset.photo); if (ev) showPhoto(ev); return; }
     const ics = e.target.closest("[data-ics]"); if (ics) { const [kind, id] = ics.dataset.ics.split("|"); addToCalendar(key, kind, id); return; }
   };
-  $("#addBtn").onclick = () => quickAddSheet(key);
   $("#tchips").onclick = async e => { const b = e.target.closest("[data-temp]"); if (!b || b.dataset.temp === st) return;
     await addEvent("temperature", key, {status: b.dataset.temp}); toast(`🌡 ${TEMP_NAME[b.dataset.temp]} — the PC updates at the next sync`); render(); };
   const pb = $("#promoteBtn"); if (pb) pb.onclick = async () => {
@@ -393,9 +397,10 @@ function meetingItem(key, m) {
 function groupHtml(g, isOrder, key) {
   const icon = ln => ln.section === "Film" ? "🎞" : ln.section === "Machines" ? "⚙" : "•";
   const tot = `Goods ${gbp(g.subtotal)}${g.shipping_cost ? ` + Shipping ${gbp(g.shipping_cost)}` : ""} = ${gbp((g.subtotal || 0) + (g.shipping_cost || 0))} +VAT ${gbp(g.vat_amount)} → ${gbp(g.grand_total)}`;
-  return `<div class="item ${g._pending ? "pend" : ""}"><div class="qhead"><span class="small">${niceDate(isOrder ? g.order_date : g.date)}</span><span class="hl">${esc(g.headline)}${pendBadge(g)}</span>
-    ${isOrder ? `<span class="amt box">${gbp(g.grand_total)}</span>` : `<span class="stat" style="background:${STAT_COL[String(g.status || "").toLowerCase()] || "#6b7280"}">${esc(g.status)}</span><span class="amt">${gbp(g.grand_total)}</span>`}</div>
-    ${g.quote_number ? `<div class="small"><b>${esc(g.quote_number)}</b></div>` : ""}
+  const scol = STAT_COL[String(g.status || "").toLowerCase()] || "#6b7280";
+  return `<div class="item grp ${g._pending ? "pend" : ""}"><div class="gtop"><span class="gdate">${niceDate(isOrder ? g.order_date : g.date)}${g.quote_number ? " · " + esc(g.quote_number) : ""}</span>
+    ${isOrder ? `<span class="gst" style="--sc:#16a34a">Order</span>` : `<span class="gst" style="--sc:${scol}">${esc(g.status)}</span>`}${pendBadge(g)}<span class="gamt">${gbp(g.grand_total)}</span></div>
+    <div class="ghl">${esc(g.headline)}</div>
     ${(g.lines || []).map(ln => { const pr = isOrder ? ln.unit_price : (ln.agreed_price || ln.quoted_price || 0);
       return `<div class="small">${icon(ln)} ${esc(ln.description)} ×${num(ln.quantity)} @ ${gbp(pr)}${!isOrder && ln.agreed_price && ln.quoted_price && ln.agreed_price != ln.quoted_price ? ` (was ${gbp(ln.quoted_price)})` : ""}</div>`; }).join("")}
     <div class="tot">${tot}</div>${!isOrder && key ? (quoteConverted(key, g) ? `<div class="small t-green" style="font-weight:700">✓ Converted to an order${g._pending || pend(key, "order_new").some(e => e.data.from_quote && e.data.from_quote.key === quoteKeyOf(g)) ? " (not synced)" : ""}</div>`
@@ -442,9 +447,9 @@ const TAB_RENDER = {
   commercial: ({key, v, qg, og}) => {
     const cm = v.commercial || {};
     return `<div style="display:flex;gap:6px;margin:6px 0"><a class="btn sm amber" href="#/add/quote/${encodeURIComponent(key)}">💷 New quote</a><a class="btn sm" style="background:var(--teal)" href="#/add/order/${encodeURIComponent(key)}">🛒 New order</a><a class="btn sm" style="background:var(--purple)" href="#/sign/${encodeURIComponent(key)}">✍️ Sign-off</a></div>
-      <div class="ctiles"><div class="tile" style="background:#2563eb"><b>${esc(cm.total_quotes ?? qg.length)}</b><span>Quotes</span></div><div class="tile" style="background:#16a34a"><b>${esc(cm.win_rate ?? "—")}</b><span>Win rate</span></div>
-        <div class="tile" style="background:#f59e0b;color:#111"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div><div class="tile" style="background:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
-        <div class="tile" style="background:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>${v.reorder ? `<div class="tile" style="background:#6b7280"><b style="font-size:12px">${esc(v.reorder.text.replace(/^\S+\s/, ""))}</b><span>Film reorder</span></div>` : ""}</div>
+      <div class="ctiles soft"><div class="st" style="--k:#2563eb"><b>${esc(cm.total_quotes ?? qg.length)}</b><span>Quotes</span></div><div class="st" style="--k:#16a34a"><b>${esc(cm.win_rate ?? "—")}</b><span>Win rate</span></div>
+        <div class="st" style="--k:#d97706"><b>${gbp0(cm.open_value)}</b><span>Open quotes</span></div><div class="st" style="--k:#7c3aed"><b>${esc(cm.orders ?? og.length)}</b><span>Orders</span></div>
+        <div class="st" style="--k:#0d9488"><b>${gbp0(cm.order_value)}</b><span>Order value</span></div>${v.reorder ? `<div class="st" style="--k:#64748b"><b style="font-size:13px">${esc(v.reorder.text.replace(/^\S+\s/, ""))}</b><span>Film reorder</span></div>` : ""}</div>
       <h2>Quotes <span class="r small">${qg.length}</span></h2><div class="list">${qg.map(g => groupHtml(g, false, key)).join("") || '<div class="empty">No quotes.</div>'}</div>
       ${typeof quotePdfsMadeHtml === "function" ? quotePdfsMadeHtml(key) : ""}
       <h2>Orders <span class="r small">${og.length}</span></h2><div class="list">${og.map(g => groupHtml(g, true)).join("") || '<div class="empty">No orders.</div>'}</div>
@@ -486,7 +491,7 @@ function quickAddSheet(key) {
   if (!key) { // what are you adding, and for whom?
     const rec = (META.recent || []).map(k => IDX.co.get(k)).filter(Boolean).slice(0, 8);
     const av = c => { const col = STATUS_COL[companyStatus(c)] || "#94a3b8", ini = c.name.replace(/[^A-Za-z0-9 ]/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
-      return `<span class="av" style="background:${col === "#dde1ea" ? "#94a3b8" : col}">${esc(ini || "?")}</span>`; };
+      return `<span class="av" style="background:linear-gradient(145deg,${col === "#dde1ea" ? "#94a3b8" : col},${col === "#dde1ea" ? "#94a3b8" : col}cc)">${esc(initials(c.name))}</span>`; };
     openSheet(`<b style="font-size:19px;letter-spacing:-.01em">Add something</b>
       <div class="qa-gen"><a href="#/newco">🏢 New lead</a><a href="#/dropin">📍 Drop-in</a><a href="#/board">📌 Sticky</a></div>
       ${rec.length ? `<h2 style="margin:14px 2px 6px">Recent customers</h2><div class="recentchips">${rec.map(c => `<a data-pick="${esc(c._key)}">${av(c)}<span class="nm">${esc(c.name)}</span></a>`).join("")}</div>` : ""}
@@ -688,8 +693,8 @@ route(/^#\/sync$/, () => {
   const names = {note:"notes",action_new:"actions",action_done:"ticked off",meeting:"visits/meetings",contact_new:"contacts",company_new:"new companies",quote_new:"quotes",order_new:"orders",signoff:"signed sheets",photo:"photos"};
   const snapAge = SNAP && SNAP.exported_at ? ago(SNAP.exported_at) : "";
   $("#view").innerHTML = `${healthBanners()}
-    <div class="card"><div style="display:flex;align-items:center;gap:10px"><span style="font-size:28px">⬆️</span><div><b>Send to the CRM</b><div class="small">${PENDING.length ? `${PENDING.length} item${PENDING.length === 1 ? "" : "s"}: ${Object.entries(byType).map(([k, n]) => `${n} ${names[k] || k}`).join(", ")}` : "Nothing waiting — all sent."}</div></div></div>
-      <button class="btn block red" id="exportBtn" ${PENDING.length ? "" : "disabled"}>📤 Export changes${PENDING.length ? ` (${PENDING.length})` : ""}</button>
+    <div class="card"><div style="display:flex;align-items:center;gap:10px"><span style="font-size:28px">⬆️</span><div><b>Send to the CRM</b><div class="small">${PENDING.length ? `${PENDING.length} item${PENDING.length === 1 ? "" : "s"}: ${Object.entries(byType).map(([k, n]) => `${n} ${names[k] || k}`).join(", ")}` : (META.roadDirty ? "Mileage has changed since you last sent it." : "Nothing waiting — all sent.")}</div></div></div>
+      <button class="btn block red" id="exportBtn" ${PENDING.length || META.roadDirty ? "" : "disabled"}>📤 Export changes${PENDING.length ? ` (${PENDING.length})` : ""}${META.roadDirty ? " + mileage" : ""}</button>
       <div class="small">Share to email / AirDrop / Drive / Files, then on the PC: <b>📱 Phone sync → Choose changes file</b>. Sending twice is harmless.${META.lastExport ? `<br>Last exported ${esc(ago(META.lastExport))}.` : ""}</div></div>
     <div class="card"><div style="display:flex;align-items:center;gap:10px"><span style="font-size:28px">⬇️</span><div><b>Load from the CRM</b><div class="small">${SNAP ? `Copy from ${esc(snapAge)} · ${(t.companies || []).length} companies · ${(t.people || []).length} contacts · ${(t.notes || []).length} notes` : "No CRM data yet."}</div></div></div>
       <button class="btn block green" id="importBtn">📥 Load snapshot from CRM</button>

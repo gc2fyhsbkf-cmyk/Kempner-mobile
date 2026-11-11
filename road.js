@@ -6,7 +6,22 @@ let ROAD = {visits: [], plans: {}, mileage: {}, dist: {}, pc: {seen: {}, notes: 
 async function loadRoad() {
   try { for (const k of ["visits", "plans", "mileage", "dist", "pc"]) ROAD[k] = (await KV.get("road_" + k)) || ROAD[k]; } catch (e) {}
 }
-const saveRoad = k => KV.set("road_" + k, ROAD[k]);
+const saveRoad = k => { if (k === "visits" || k === "mileage") { META.roadDirty = true; try { saveMeta(); } catch (e) {} } return KV.set("road_" + k, ROAD[k]); };
+// a meeting that isn't somewhere you drive to: a call, Teams/Zoom, or at the office
+const REMOTE_RE = /\b(teams|zoom|video|phone|call|online|remote|webinar|google meet|office|at kempner|honeypot)\b/i;
+const isRemoteMeeting = m => REMOTE_RE.test(`${m.location || ""} ${m.notes || ""} ${m.meeting_type || ""}`);
+// 🚗 the mileage log, sent with every export so the CRM can keep its own copy (last 120 days)
+function roadExport() {
+  const since = addDays(-120), days = [...new Set(ROAD.visits.filter(v => v.date >= since).map(v => v.date))].sort();
+  const realId = k => { const c = IDX.co.get(String(k)); return c && c.id != null && !String(k).startsWith("t:") ? c.id : null; };
+  return {exported_at: nowIso(), home_pc: homePc(), office_pc: officePc(), rate_p: mileRateP(),
+    claimed: Object.fromEntries(Object.entries(ROAD.mileage).filter(([k, v]) => k.startsWith("claimed:") && v).map(([k]) => [k.slice(8), true])),
+    days: days.map(d => { const cfg = ROAD.mileage[d] || {}, {s, e} = dayEnds(cfg), legs = dayLegs(d);
+      return {date: d, start: s, end: e,
+        stops: visitsOn(d).map(v => ({id: v.id, key: v.key || "", company_id: v.key ? realId(v.key) : null, name: v.kind === "office" ? "Office" : v.name, pc: v.kind === "office" ? officePc() : (v.pc || companyPostcode(v.key) || ""), time: v.time || "", kind: v.kind || (v.key ? "visit" : "place"), src: v.src || ""})),
+        legs: legs.map(l => ({from: l.from.label, to: l.to.label, from_pc: l.from.pc || "", to_pc: l.to.pc || "", mi: l.mi, est: !!l.est, edited: !!l.edited})),
+        miles: Math.round(legs.reduce((t, l) => t + (+l.mi || 0), 0) * 10) / 10}; })};
+}
 const _bootCore = boot;
 boot = async () => { await loadRoad(); await mergePcPlans(); return _bootCore(); };
 
@@ -206,7 +221,7 @@ const stopTime = (d, k, mts) => ((mts || meetingsOn(d)).find(x => x.key === k) |
 async function mergeMeetingStops(d) {
   ROAD.pc.mt = ROAD.pc.mt || {};
   const seen = new Set(ROAD.pc.mt[d] || []), p = planFor(d), mts = meetingsOn(d); let n = 0;
-  for (const x of mts) { if (seen.has(x.key)) continue; seen.add(x.key); if (p.includes(x.key)) continue;
+  for (const x of mts) { if (seen.has(x.key)) continue; seen.add(x.key); if (p.includes(x.key) || isRemoteMeeting(x.m)) continue;
     // slot it in by time among the timed stops already there
     let at = p.length; if (x.time) { const i = p.findIndex(k => { const t = stopTime(d, k, mts); return t && t > x.time; }); if (i >= 0) at = i; }
     p.splice(at, 0, x.key); n++; }

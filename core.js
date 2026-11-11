@@ -315,6 +315,8 @@ function render() {
   const h = location.hash || "#/";
   if (h !== _lastHash) window.scrollTo(0, 0); _lastHash = h;
   $("#fab").classList.add("hidden"); $("#topRight").innerHTML = ""; _addAction = null;
+  // forms and one-off flows get the whole screen (no tab bar underneath the Save button)
+  document.body.classList.toggle("noTabs", /^#\/(add|call|done|sign|signed|svc|spare|newco|dropin|samples|card\/edit)\b/.test(h));
   closeSheet();
   for (const [re, fn] of routes) { const m = h.match(re); if (m) { fn(...m.slice(1).map(x => x == null ? x : decodeURIComponent(x))); return; } }
   go("#/");
@@ -376,11 +378,12 @@ document.addEventListener("visibilitychange", () => {
 
 // ---------- sync files ----------
 async function exportChanges() {
-  if (!PENDING.length) return toast("Nothing to send");
+  if (!PENDING.length && !META.roadDirty) return toast("Nothing to send");
   const name = `kempner_phone_changes_${stamp()}.json`;
-  const payload = {kempner_phone_changes: 1, device: META.device || "iPhone", exported_at: nowIso(), based_on_snapshot: (SNAP && SNAP.exported_at) || "", events: PENDING};
+  const payload = {kempner_phone_changes: 1, device: META.device || "iPhone", exported_at: nowIso(), based_on_snapshot: (SNAP && SNAP.exported_at) || "", events: PENDING,
+    road: typeof roadExport === "function" ? roadExport() : null};
   const file = new File([JSON.stringify(payload)], name, {type: "application/json"});
-  const done = async () => { META.lastExport = nowIso(); await saveMeta(); render(); };
+  const done = async () => { META.lastExport = nowIso(); META.roadDirty = false; await saveMeta(); render(); };
   if (navigator.canShare && navigator.canShare({files: [file]})) {
     try { await navigator.share({files: [file], title: name}); await done(); return; } catch (e) { if (e.name === "AbortError") return; }
   }
@@ -557,3 +560,25 @@ document.getElementById("tabs").addEventListener("click", e => {
   closeSheet();
   if (a.getAttribute("href") === (location.hash || "#/")) { e.preventDefault(); render(); window.scrollTo({top: 0, behavior: "smooth"}); }
 });
+
+// ---------- line icons (v27) ----------
+const _IP = {
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
+  msg: '<path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.4-5.4A8.5 8.5 0 1 1 21 12z"/>',
+  mail: '<rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><path d="m3 7 9 6 9-6"/>',
+  nav: '<path d="M3 11 21 3l-8 18-2-8z"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  brief: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  check: '<path d="m5 12 4.5 4.5L19 7"/>',
+  cal: '<rect x="3" y="4" width="18" height="17" rx="3"/><path d="M8 2v4M16 2v4M3 10h18"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  pin: '<path d="M12 21s7-6.3 7-12a7 7 0 0 0-14 0c0 5.7 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  film: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4"/>',
+  chev: '<path d="m9 6 6 6-6 6"/>',
+  skip: '<path d="m5 5 9 7-9 7zM19 5v14"/>',
+  note: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+};
+const ICON = (n, s = 20, sw = 2) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${_IP[n] || ""}</svg>`;
+const initials = name => String(name || "").replace(/[^A-Za-z0-9& ]/g, "").split(/\s+/).filter(w => w && !/^(ltd|limited|plc|the|&)$/i.test(w)).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";

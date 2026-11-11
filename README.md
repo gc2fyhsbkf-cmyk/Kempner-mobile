@@ -113,6 +113,18 @@ To update: on GitHub, **Add file → Upload files**, drag in all the files and *
 - **Prices:** tap a machine to see its data sheet facts (list price, max film, seal, packs/min, lead time, warranty).
 - Contacts marked as left on the PC drop off the phone's contact lists.
 
+## Version 28 — mileage goes to the PC
+- **Export changes now also sends your mileage log** (the last 4 months of days, stops and miles). The CRM keeps its own copy under ⋯ More → 🚗 Mileage and checks it against the visits booked there. The Export button lights up ("+ mileage") when only mileage has changed.
+- **Calls, Teams/Zoom meetings and meetings at the office** no longer get added to your Plan my day.
+
+## Version 27 — every screen restyled
+- **Customer page:** a new header with their initials in their temperature colour, the main contact under the name, and the health score. Temperature is one tidy row of pills, there are three quick facts (last contact, stage, film use), and round Call · Text · Email · Go · ⚡Snapshot · Brief buttons. The ＋ in the tab bar does the adding.
+- **Quotes and orders** read as cards: date, status pill and total on top, then what it was for. The numbers above them are soft tinted tiles instead of solid blocks.
+- **Today:** cleaner number tiles (Overdue, Due today, Meetings, Pinned) and plainer headings. Tick and reschedule are round icon buttons.
+- **Home:** the card and plan prompts are now a short list rather than three banners. Recently opened customers show as round initials.
+- **Forms** (notes, calls, actions, quotes, orders, sign-offs…) hide the tab bar, so Save is always at the bottom with nothing in the way.
+- The Companies tab is called **Customers** everywhere.
+
 ## Version 26 — new look
 - **New tab bar:** Home · Today · **＋** · Customers · Road, floating at the bottom with clean line icons.
 - **The big ＋ in the middle** adds anything from anywhere. On a customer's page it goes straight to their options (note, call, action, visit, photo, quote, order, sign-off, contact…). Anywhere else it shows your recent customers as one-tap icons, a search, and New lead / Drop-in / Sticky.
